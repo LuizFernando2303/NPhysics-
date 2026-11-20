@@ -8,7 +8,8 @@ Os valores efetivos estao em `Physics/SimulationSettings.cs`.
 
 | Constante | Valor | Efeito |
 |---|---:|---|
-| `DiskCount` | 1.000.000 | Define o numero fixo de corpos e todos os tamanhos de buffers relacionados |
+| `DiskCount` | 1.000.000 | Numero padrao de corpos; `--count` altera a quantidade para a execucao atual |
+| `Seed` | 2026 | Seed inicial; pode ser substituida por `--seed` |
 | `WorkGroupSize` | 128 | Tamanho local usado nos shaders de grade e simulacao |
 | `GridBucketCount` | 4.194.304 | Numero de buckets hash; deve ser potencia de dois |
 | `GridCellSize` | 0,2 | Escala em que posicoes sao convertidas para coordenadas de celula |
@@ -34,9 +35,23 @@ Os valores efetivos estao em `Physics/SimulationSettings.cs`.
 
 ### Alterar quantidade de discos
 
-`DiskCount` e fixo em codigo. Altera-lo muda buffers, dispatches, reset e culling. O custo cresce aproximadamente de forma linear no trabalho por disco, mas contatos podem ficar mais caros de forma nao linear quando a densidade local aumenta.
+`DiskCount` tem padrao de 1.000.000 e pode ser alterado no inicio do processo:
 
-Um milhao de discos e a configuracao solicitada. Para diagnosticar shaders e algoritmos, e recomendavel acrescentar um mecanismo de configuracao de desenvolvimento (por exemplo, argumento de linha de comando) que permita rodar pequenas quantidades sem alterar o valor de release. Isso ainda nao existe.
+```powershell
+dotnet run -- --count 4096 --seed 2026
+```
+
+Altera buffers, dispatches, reset e culling. O custo cresce aproximadamente de forma linear no trabalho por disco, mas contatos podem ficar mais caros de forma nao linear quando a densidade local aumenta. O valor precisa ser positivo; reiniciar a aplicacao e necessario para alterar a quantidade.
+
+Ative coleta durante o startup com `--capture true` ou use `F5`. A coleta grava `.nphysdata` no diretorio LocalAppData padrao. Validacao e ferramentas de modelo sao comandos one-shot:
+
+```powershell
+dotnet run -- --validate-dataset "C:\path\to\capture.nphysdata"
+dotnet run -- --train "C:\path\to\capture.nphysdata"
+dotnet run -- --gpu-model-check "C:\path\to\capture.nphysmodel"
+```
+
+`--train` e experimental e nao representa treinamento completo: atualmente atualiza apenas o decoder. `--gpu-model-check` abre contexto OpenGL temporario e valida o upload SSBO e um produto matriz-vetor; nao roda inferencia GNN nem inicia a simulacao.
 
 ### Alterar grade hash
 
@@ -65,7 +80,7 @@ Os principais SSBOs ocupam aproximadamente 169 MB decimais para um milhao de esf
 - malhas e framebuffer consomem memoria adicional;
 - a lista de indices visiveis tem capacidade para um milhao de indices mesmo que poucos objetos aparecam na camera.
 
-O reset recria arrays e reenvia os dados completos. Se o processo falhar durante alocacao ou upload, reduzir a configuracao de desenvolvimento requer primeiro adicionar essa opcao ao projeto.
+O reset recria arrays e reenvia os dados completos. Para testar com menos corpos, use `--count` no startup.
 
 ## Desempenho: o que e e nao e otimizado
 
@@ -173,7 +188,7 @@ Use esta sequencia para limitar o escopo quando uma mudanca afetar fisica, shade
 6. Confirme que a janela abre e que a rampa e a populacao aparecem.
 7. Deixe a simulacao avancar por alguns segundos e procure NaN visual, discos explodindo ou congelamento.
 8. Pause e retome para confirmar que o estado se mantem estavel.
-9. Reinicialize e confirme que a quantidade continua fixa e que novos materiais sao aceitos.
+9. Reinicialize e confirme que a quantidade configurada continua igual e que novos materiais sao aceitos.
 10. Redimensione a janela e confira se a projecao e o culling continuam coerentes.
 11. Feche normalmente e confirme que o descarte dos recursos nao gera erros.
 

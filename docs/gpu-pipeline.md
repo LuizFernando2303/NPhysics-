@@ -46,6 +46,8 @@ Os numeros de binding sao uma interface entre o codigo C# e cada programa shader
 | 8 | Contadores de metricas | simular (binding 6 no build da grade; binding 2 no culling) |
 | 9 | Estado angular de entrada (compute) ou orientacao corrente (render) | simular, vertex shader |
 | 10 | Estado angular de saida | simular |
+| 11 | Dados de captura (binding exclusivo do shader de dataset) | `CaptureTraining.comp.glsl` |
+| 12 | Contadores da captura (binding exclusivo do shader de dataset) | `CaptureTraining.comp.glsl` |
 
 Para renderizar, o buffer de indices visiveis e associado ao binding 1 do programa grafico. Ele compartilha uma alocacao com o comando indireto:
 
@@ -113,6 +115,45 @@ O shader procura os buckets da celula atual e seus vizinhos imediatos. Como o ha
 
 Depois da barreira de armazenamento, `_currentState` passa a apontar para o buffer que acabou de ser escrito. O antigo buffer de entrada fica disponivel como destino do proximo passo.
 
+## Captura de dataset (opt-in)
+
+Quando ativada, a captura e executada depois de `Simulate` e antes de `_currentState` alternar. Assim, o shader ve simultaneamente os SSBOs de entrada e saida do passo professor. A captura reconstroi o movimento livre com gravidade/arrasto para produzir correcoes translacionais e armazena as saidas do professor.
+
+O layout atual reserva 384 floats (1.536 bytes) por esfera:
+
+| Offset | Campos |
+|---:|---|
+| 0–3 | Posicao anterior XYZ, raio |
+| 4–7 | Velocidade anterior XYZ, massa |
+| 8–11 | Quaternion anterior |
+| 12–15 | Velocidade angular anterior XYZ, inercia |
+| 16–19 | Posicao livre XYZ, massa inversa |
+| 20–23 | Velocidade livre XYZ, distancia assinada a rampa |
+| 24–26 | Posicao do professor XYZ |
+| 27–29 | Normal local da rampa |
+| 30–32 | Velocidade do professor XYZ |
+| 33–35 | Velocidade angular do professor XYZ |
+| 36–38 | Correcao de posicao XYZ |
+| 39–41 | Correcao de velocidade XYZ |
+| 42–44 | Correcao de velocidade angular XYZ |
+| 45–47 | Velocidade normal de contato, velocidade tangencial, categoria |
+| 48–367 | 16 registros de vizinho, 20 floats cada |
+| 368–374 | Atritos/restituicao, gravidade, delta time e inclinacoes locais |
+| 375–380 | Contagem de vizinhos, overflow, flags de contato e velocidade relativa maxima |
+| 381–383 | Reservado; escrito como zero |
+
+Cada vizinho armazena posicao relativa XYZ/distancia, velocidade relativa XYZ, velocidade angular relativa XYZ, penetracao, raio, massa, coeficientes de atrito/restituicao do vizinho, velocidade de contato relativa XYZ e indice do vizinho local ao bloco. O buffer e zerado por invocacao antes de preencher os vizinhos.
+
+O buffer de amostras e acompanhado por 16 contadores uint. A GPU copia os contadores para o fim do bloco de captura e um slot no anel de staging copia ambos juntos, com uma unica fence e numero de sequencia. A leitura testa a fence com timeout zero; sem slot livre a amostra e ignorada para nao bloquear a simulacao. O arquivo fica em `%LOCALAPPDATA%/NPhysics/datasets/`.
+
+O shader de captura e executado no driver OpenGL da aplicacao; `dotnet build` isoladamente nao valida GLSL. Use `--capture true` e uma contagem pequena para verificar o dispatch. `--validate-dataset <arquivo>` valida a leitura incremental do arquivo.
+
+## Pesos do modelo para GPU
+
+O arquivo `.nphysmodel` v2 nomeia e valida dimensoes de todas as camadas. `GpuModelWeights` concatena pesos row-major e biases em um `float[]` SSBO, com offsets em unidades de floats. Antes do upload, compara o tamanho requerido ao limite `GL_MAX_SHADER_STORAGE_BLOCK_SIZE`. O shader de probe usa um produto matriz-vetor; o manifesto e offsets detalhados estao em [model-gpu-layout.md](model-gpu-layout.md).
+
+`--gpu-model-check <arquivo>` cria um contexto temporario, carrega o modelo, faz upload e compara a camada `node_encoder` no GLSL com o calculo CPU para entrada nao-zero. Esse teste nao executa SiLU, message passing, decoder, nem a rede completa; tampouco muda o backend fisico.
+
 ## Pipeline de culling e desenho
 
 1. O C# inicializa `indexCount` e zera `instanceCount` do comando indireto.
@@ -129,7 +170,7 @@ Essa etapa economiza rasterizacao de discos fora da camera. Ela ainda percorre t
 
 ## Geracao e incorporacao dos shaders
 
-`NPhysics.csproj` inclui `Shaders\*.glsl` como recurso embutido. Os nomes de recurso seguem:
+`NPhysics.csproj` inclui `Shaders\*.glsl`, `Shaders\Dataset\*.glsl` e `Shaders\Neural\*.glsl` como recursos embutidos. Os nomes de recurso seguem:
 
 ```text
 NPhysics.Shaders.ClearGrid.comp.glsl
@@ -138,6 +179,8 @@ NPhysics.Shaders.Simulate.comp.glsl
 NPhysics.Shaders.CullDisks.comp.glsl
 NPhysics.Shaders.Surface.vert.glsl
 NPhysics.Shaders.Surface.frag.glsl
+NPhysics.Shaders.Dataset.CaptureTraining.comp.glsl
+NPhysics.Shaders.Neural.LinearProbe.comp.glsl
 ```
 
 O argumento de `ShaderSource.Load` omite o sufixo `.glsl`. O carregador substitui marcadores como `@GRAVITY@` por constantes formatadas com cultura invariavel. Um marcador esquecido resulta em erro de compilacao GLSL; por isso, revisar o texto final resolvido e o log do driver quando um shader falhar.
@@ -158,12 +201,12 @@ Se um compute shader for adicionado, identificar qual comando seguinte consome s
 Em cada passo de simulacao, o projeto:
 
 - escreve todos os 4.194.304 buckets;
-- insere um milhao de discos;
-- executa um milhao de invocacoes de simulacao;
+- insere N discos (1.000.000 por padrao);
+- executa N invocacoes de simulacao;
 - percorre ate 27 listas hash por disco;
 - consulta obstaculos ativos por disco.
 
-Em cada quadro de renderizacao, o culling faz mais um milhao de testes. O principal custo depende da distribuicao espacial e de quantos discos estao nos mesmos buckets, nao apenas do numero de discos visiveis.
+Em cada quadro de renderizacao, o culling faz mais N testes. O principal custo depende da distribuicao espacial e de quantos discos estao nos mesmos buckets, nao apenas do numero de discos visiveis.
 
 ## Diagnostico GPU
 
@@ -178,4 +221,4 @@ Quando houver um erro:
 7. Confirmar limites de workgroup suportados pelo dispositivo.
 8. Reproduzir com uma quantidade pequena de discos em branch/teste temporario antes de escalar.
 
-O passo 8 exige parametrizar a quantidade; atualmente a configuracao e uma constante fixa de um milhao e nao existe argumento CLI para reduzi-la.
+Use `--count 256`, `--count 1024` ou outra quantidade positiva para reproduzir com um conjunto menor. Um milhao continua sendo o padrao.

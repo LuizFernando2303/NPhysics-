@@ -1,6 +1,6 @@
 # NPhysics
 
-Simulacao interativa de um milhao de esferas rigidas em uma rampa procedural 3D, implementada em C# com OpenTK e OpenGL. Integracao, busca de vizinhos, contatos translacionais/rotacionais e selecao de objetos visiveis sao processados na GPU por compute shaders.
+Simulacao interativa de ate um milhao de esferas rigidas por padrao em uma rampa procedural 3D, implementada em C# com OpenTK e OpenGL. Integracao, busca de vizinhos, contatos translacionais/rotacionais e selecao de objetos visiveis sao processados na GPU por compute shaders.
 
 ## Sumario
 
@@ -20,12 +20,12 @@ Simulacao interativa de um milhao de esferas rigidas em uma rampa procedural 3D,
 
 ## Escopo e parametros
 
-Os valores abaixo descrevem a configuracao implementada atualmente. A solicitacao inicial mencionava 16 objetos variaveis; a configuracao final adotada e fixa em **1.000.000 de esferas**, conforme a instrucao posterior. O total nao aumenta durante a simulacao e esferas que saem da rampa nao sao recriadas.
+Os valores abaixo descrevem a configuracao implementada atualmente. A simulacao convencional usa **1.000.000 de esferas por padrao**; a quantidade pode ser reduzida no inicio por argumento de linha de comando. O total nao aumenta durante a simulacao e esferas que saem da rampa nao sao recriadas.
 
 | Parametro | Valor ou comportamento |
 |---|---|
 | Dimensao | Fisica de esferas rigidas 3D, com orientacao e velocidade angular |
-| Quantidade | Fixa em 1.000.000 |
+| Quantidade | 1.000.000 por padrao; configuravel com `--count` |
 | Gravidade | 9,81 m/s², na direcao vertical negativa |
 | Inclinacao nominal da rampa | 45 graus; pequenas ondulacoes alteram localmente a superficie |
 | Passo fixo de fisica | 1/120 s |
@@ -41,7 +41,7 @@ Os valores abaixo descrevem a configuracao implementada atualmente. A solicitaca
 | Arrasto do ar | Densidade 1,225 kg/m³ e coeficiente de esfera 0,47 |
 | Borda da rampa | Limite lateral com reflexao baseada na restituicao da esfera |
 
-Os valores de massa, raio, atrito e restituicao sao sorteados na inicializacao e novamente ao pressionar `R`. Um reinicio substitui o estado/material das mesmas 1.000.000 de esferas; nao altera a quantidade.
+Os valores de massa, raio, atrito e restituicao sao sorteados na inicializacao e novamente ao pressionar `R`. A quantidade escolhida na inicializacao permanece a mesma durante os resets.
 
 ## Requisitos e execucao
 
@@ -69,12 +69,12 @@ O projeto usa OpenTK 4.9.4 e incorpora os arquivos GLSL no assembly durante a co
 | Tecla | Acao |
 |---|---|
 | `Espaco` | Pausar ou continuar a fisica e o movimento da camera |
-| `R` | Reinicializar as mesmas 1.000.000 de esferas e seus materiais |
+| `R` | Reinicializar a quantidade configurada de esferas e seus materiais |
 | `F3` | Pausar ou retomar a coleta de diagnosticos |
 | `F4` | Salvar uma captura PNG do quadro atual para avaliacao |
 | `F5` | Ativar ou pausar a coleta do dataset |
 
-A velocidade inicial da camera e 5,5 unidades por segundo. O numero de discos nao e um controle de runtime: esta fixado em `SimulationSettings.DiskCount`.
+A velocidade inicial da camera e 5,5 unidades por segundo. A quantidade e seed podem ser informadas no inicio; para alterar a quantidade, reinicie o processo.
 O rastreamento inicia ativado e grava uma linha JSONL por amostra em `%LOCALAPPDATA%/NPhysics/traces`. Salva tambem cinco quadros PNG automaticamente no inicio e aceita capturas adicionais por `F4` (limite de 20 por sessao), junto de metadados de camera/tempo no JSONL. As imagens ficam em uma pasta com o mesmo nome-base da sessao e sufixo `-frames`. O caminho da sessao aparece no console. A coleta usa readback GPU assincrono para contadores; capturas de imagem sao esparsas e fazem leitura sincronica do framebuffer. `F3` pausa/retoma a telemetria automatica.
 
 ## Fase 1 de coleta neural
@@ -86,6 +86,8 @@ dotnet run -- --count 4096 --seed 2026 --capture true
 ```
 
 Os arquivos `.nphysdata` sao gravados em `%LOCALAPPDATA%/NPhysics/datasets/`. A captura usa staging buffers em anel e fences OpenGL; o solver convencional nao usa o caminho neural. Os formatos incrementais podem ser validados pelo `DatasetReader`.
+
+A captura atual armazena amostras de 384 floats por esfera, com campos de estado, saidas-alvo, propriedades ambientais e ate 16 vizinhos. Blocos incluem metadados de frame, contagens de categorias e overflow. O schema e versionado; mudancas na ordem dos campos exigem incrementar a versao. A lista de configuracoes da captura em codigo nao significa que todos esses campos ja tenham opcoes de CLI.
 
 Valide um arquivo capturado sem abrir a janela:
 
@@ -101,7 +103,7 @@ Treine um modelo a partir de um arquivo `.nphysdata`:
 dotnet run -- --train "C:\Users\Anna Beatriz\AppData\Local\NPhysics\datasets\dataset.nphysdata"
 ```
 
-O modelo correspondente sera gravado com extensao `.nphysmodel`. A implementacao atual usa uma GNN Encode-Process-Decode em C#, Huber Loss separavel por componente, Adam e serializacao propria. O backprop do decoder esta implementado; o backprop completo do encoder e das duas passagens de mensagens continua pendente antes do treinamento de producao.
+O modelo correspondente sera gravado com extensao `.nphysmodel`. A implementacao atual tem um forward Encode-Process-Decode em C#, Huber Loss e otimizador Adam. O comando `--train` e um caminho experimental de uma passagem: o backprop atualmente atualiza apenas o decoder; o encoder, o edge encoder e as duas passagens de message passing nao recebem gradientes. Ainda nao ha mini-batches, divisao treino/validacao/teste, normalizacao calculada do dataset ou treinamento completo, portanto o arquivo gerado nao deve ser considerado um modelo treinado para fisica.
 
 Verifique carregamento/upload dos pesos e a equivalencia de uma camada linear na GPU:
 
@@ -109,7 +111,7 @@ Verifique carregamento/upload dos pesos e a equivalencia de uma camada linear na
 dotnet run -- --gpu-model-check "%LOCALAPPDATA%\NPhysics\datasets\dataset.nphysmodel"
 ```
 
-O formato v2 e a organizacao dos pesos no SSBO estao documentados em [docs/model-gpu-layout.md](docs/model-gpu-layout.md). Este probe nao ativa a inferencia GNN nem altera o backend fisico.
+O formato v2 e a organizacao dos pesos no SSBO estao documentados em [docs/model-gpu-layout.md](docs/model-gpu-layout.md). Este probe verifica a leitura do modelo, packing/upload do SSBO e um compute linear; nao ativa a inferencia GNN nem altera o backend fisico.
 
 ## Arquitetura
 
@@ -121,6 +123,8 @@ O codigo e separado por responsabilidade:
 | `PhysicsSimulation.cs` | Ciclo da janela OpenTK, entrada, acumulador de passo fixo, camera e coordenacao dos componentes |
 | `Physics/SimulationSettings.cs` | Parametros centralizados usados pela simulacao e pela geracao de shaders |
 | `Physics/GpuPhysics.cs` | Buffers SSBO, inicializacao das esferas, grade espacial, dispatch e estado fisico na GPU |
+| `Dataset/` | Captura GLSL, readback assíncrono, escritor/leitor e schema binario `.nphysdata` |
+| `Learning/` | Rede experimental em C#, loss/otimizador, loader, serializador `.nphysmodel` e packing de pesos para SSBO |
 | `Diagnostics/GpuDiagnostics.cs` | Contadores GPU, queries de tempo e leitura assíncrona de amostras |
 | `Diagnostics/SimulationTrace.cs` | Cabecalho de sessao, eventos de coleta e gravacao JSONL |
 | `Diagnostics/TelemetryModels.cs` | Estruturas tipadas das janelas CPU/GPU registradas |
@@ -132,12 +136,14 @@ O codigo e separado por responsabilidade:
 | `Shaders/ClearGrid.comp.glsl` | Limpa os cabecalhos da grade espacial |
 | `Shaders/BuildGrid.comp.glsl` | Insere cada disco em uma celula hash e constroi as listas ligadas |
 | `Shaders/Simulate.comp.glsl` | Integracao translacional/rotacional, contatos com rampa/obstaculos e colisoes esfera-esfera |
+| `Shaders/Dataset/CaptureTraining.comp.glsl` | Captura de entradas, vizinhos, targets e metadados para dataset |
+| `Shaders/Neural/LinearProbe.comp.glsl` | Probe isolado de uma camada linear sobre pesos em SSBO; nao e o runtime de inferencia GNN |
 | `Shaders/CullDisks.comp.glsl` | Descarta discos fora do frustum e prepara o comando de desenho indireto |
 | `Shaders/Surface.vert.glsl` | Posiciona vertices da rampa, obstaculos e discos instanciados |
 | `Shaders/Surface.frag.glsl` | Iluminacao direcional simples e cor dos materiais |
 | `NPhysics.csproj` | Target .NET, dependencia OpenTK e incorporacao dos shaders como recursos |
 
-O namespace das classes e `NPhysics`. A aplicacao exige contexto OpenGL 4.3 Core.
+O namespace das classes e `NPhysics`. A aplicacao exige contexto OpenGL 4.3 Core. A simulacao continua usando somente o backend Teacher; o pipeline neural de inferencia ainda nao esta integrado.
 
 ## Fluxo de inicializacao e simulacao
 
@@ -257,7 +263,7 @@ As esferas iniciais sao arranjadas em colunas ao longo de X, 110 faixas em Z e a
 
 ## Desempenho e limitacoes
 
-Um milhao e uma quantidade fixa muito alta para uma simulacao interativa. A GPU precisa processar um milhao de invocacoes por passo de fisica e por quadro de culling. O processamento foi movido para compute shaders, e a renderizacao evita desenhar esferas fora da camera, mas o desempenho final depende da GPU, do driver e da densidade local de corpos.
+A configuracao padrao de um milhao de esferas e muito alta para uma simulacao interativa; a quantidade pode ser reduzida com `--count` para desenvolvimento. A GPU processa N invocacoes por passo de fisica e por quadro de culling. O processamento foi movido para compute shaders, e a renderizacao evita desenhar esferas fora da camera, mas o desempenho final depende da GPU, do driver e da densidade local de corpos.
 
 O modelo e uma simulacao customizada, nao um motor rigido completo:
 
@@ -288,5 +294,6 @@ Os documentos complementares detalham o projeto sem transformar este arquivo em 
 - [Arquitetura e ciclo de vida](docs/architecture.md): responsabilidades, dependencias, ownership de recursos e sequencia de inicializacao.
 - [Modelo fisico e contatos](docs/physics-model.md): coordenadas, rampa, integracao, atrito, restitucao e limites das aproximacoes.
 - [Pipeline GPU e memoria](docs/gpu-pipeline.md): SSBOs, hash espacial, dispatches, sincronizacao e culling.
+- [Layout do modelo neural na GPU](docs/model-gpu-layout.md): formato `.nphysmodel` v2, packing dos pesos e limites do probe atual.
 - [Parametros, desempenho e diagnostico](docs/operations.md): faixas configuraveis, estimativas, sintoma/causa e roteiro de verificacao.
 - [Rastreamento e diagnosticos](docs/diagnostics.md): campos do trace, custos, controles e como usar os dados para orientar otimizacoes.

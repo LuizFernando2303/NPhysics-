@@ -8,19 +8,27 @@ O projeto separa a janela e o loop da aplicacao, a simulacao numerica, o mundo p
 
 ```text
 Program
+  ├── --train / --validate-dataset (comandos sem janela de simulacao)
+  ├── --gpu-model-check (janela OpenGL temporaria)
   └── PhysicsSimulation (GameWindow)
       ├── ProceduralTrack
       ├── GpuPhysics
       │   ├── SimulationSettings
-      │   ├── GlProgram
-      │   └── ShaderSource
-      │   └── GpuDiagnostics
+      │   ├── GlProgram / ShaderSource
+      │   ├── GpuDiagnostics
+      │   └── DatasetGenerator (opt-in)
+      │       ├── CaptureTraining.comp.glsl
+      │       ├── AsyncGpuReadback
+      │       └── DatasetWriter (.nphysdata)
       ├── SimulationTrace
       └── SceneRenderer
-          ├── ProceduralTrack
-          ├── GpuPhysics
-          ├── GlProgram
-          └── ShaderSource
+```
+
+As ferramentas de aprendizado ainda sao independentes do backend fisico ativo:
+
+```text
+DatasetReader -> DatasetLoader -> GraphNetwork / GraphTrainer -> ModelSerializer (.nphysmodel)
+                                                        └── GpuModelWeights -> LinearProbe.comp.glsl
 ```
 
 `PhysicsSimulation` possui os componentes durante a vida da janela. A janela cria e descarta os recursos OpenGL; por isso, os objetos que chamam `GL.*` devem ser inicializados e descartados com um contexto OpenGL valido na thread da janela.
@@ -29,7 +37,7 @@ Program
 
 ### `Program`
 
-`Program.Main` e deliberadamente pequeno. Cria `PhysicsSimulation` em um `using` e chama `Run()`. Nao contem logica de mundo, fisica ou renderizacao.
+`Program.Main` trata os comandos de validacao do dataset, treinamento experimental e probe GPU. Sem esses comandos, cria `PhysicsSimulation` e inicia a simulacao Teacher interativa. A leitura dos argumentos e simples e especifica para as opcoes documentadas; nao e um parser geral.
 
 ### `PhysicsSimulation`
 
@@ -62,7 +70,18 @@ Possui os handles dos buffers, programas compute, uniform locations e o array de
 - executa clear, build-grid e simulate na ordem correta;
 - produz a lista GPU de discos visiveis;
 - expoe handles necessarios ao renderizador;
-- libera recursos GPU.
+- libera recursos GPU;
+- cria `DatasetGenerator` somente quando a captura e ativada no startup ou por `F5`.
+
+Com a captura desativada, o passo Teacher nao faz dispatch de captura nem readback de estados.
+
+O dispatch de captura ocorre depois de `Simulate` e antes da alternancia de `_currentState`. Ele recebe os dois estados, materiais, grade e links. O readback usa um anel de buffers e fences sem espera de CPU; slots ainda ocupados sao pulados.
+
+### `Dataset` e `Learning`
+
+`DatasetGenerator` executa `CaptureTraining.comp.glsl` e grava blocos binarios `.nphysdata`. `DatasetReader` verifica a assinatura, os tamanhos/contagens dos blocos e valores finitos, entregando blocos incrementalmente; a validacao atual ainda nao rejeita todas as versoes de schema no cabecalho. `Learning` contem o forward experimental da GNN, o treinador em CPU e o serializador do modelo. Esse caminho nao e chamado pelo solver Teacher.
+
+`GpuModelWeights` valida o `.nphysmodel` v2 e empacota as camadas para um SSBO. `GpuModelProbeWindow` carrega o modelo em contexto OpenGL temporario e verifica uma camada linear. Ainda nao existe inferencia GNN completa na GPU, nem selecao Teacher/Neural no runtime.
 
 O estado corrente e identificado por `_currentState`, que seleciona os buffers de posicao, velocidade linear e estado angular. O estado angular contem quaternion e velocidade angular em dois `vec4` por esfera. A cada passo os tres conjuntos alternam entre os buffers de entrada e saida.
 
@@ -94,14 +113,14 @@ O renderizador nao copia as posicoes dos discos para CPU.
 
 `ShaderSource` procura recursos com nomes `NPhysics.Shaders.<nome>.glsl`, le o texto e substitui marcadores de configuracao. `GlProgram` compila shaders de compute ou shaders graficos, verifica status e lanca uma excecao com log caso compilacao ou link falhem.
 
-Os fontes ficam em `Shaders/` e sao incluidos no assembly pela declaracao `EmbeddedResource` de `NPhysics.csproj`. Ao renomear um recurso, atualizar tanto o arquivo quanto o nome passado a `ShaderSource.Load`.
+Os fontes ficam em `Shaders/` e seus subdiretorios `Dataset/` e `Neural/`; sao incluidos no assembly pelas declaracoes `EmbeddedResource` de `NPhysics.csproj`. Ao renomear um recurso, atualizar tanto o arquivo quanto o nome passado a `ShaderSource.Load`.
 
 ## Fluxo de inicializacao
 
-1. `Program.Main` cria a janela e transfere controle ao `GameWindow.Run`.
+1. Sem argumento de ferramenta, `Program.Main` cria a janela e transfere controle ao `GameWindow.Run`.
 2. OpenTK cria um contexto OpenGL 4.3 Core e chama `OnLoad`.
 3. A janela configura clear color, depth testing, back-face culling e viewport.
-4. `GpuPhysics.Initialize` compila os programas compute, cria SSBOs e contadores de diagnostico, localiza uniforms, inicializa arrays e envia posicoes, velocidades e materiais.
+4. `GpuPhysics.Initialize` compila os programas compute, cria SSBOs e contadores de diagnostico, localiza uniforms, inicializa arrays e envia posicoes, velocidades e materiais. A captura cria seus recursos somente quando ativada.
 5. `GpuPhysics.Initialize` cria tambem a lista inicial de obstaculos e seus dados GPU.
 6. `SceneRenderer.Initialize` compila o programa de superficie e cria VAOs/VBOs/EBOs.
 7. O loop de eventos chama updates e renders ate a janela fechar.
