@@ -7,7 +7,9 @@ internal static class ShaderSource
 {
     public static string Load(string fileName)
     {
-        var resourceName = $"NPhysics.Shaders.{fileName}.glsl";
+        var resourceName = fileName.Contains('/')
+            ? $"NPhysics.Shaders.{fileName.Replace('/', '.')}.glsl"
+            : $"NPhysics.Shaders.{fileName}.glsl";
         using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException($"Shader embutido nao encontrado: {resourceName}");
         using var reader = new StreamReader(stream);

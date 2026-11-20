@@ -72,9 +72,36 @@ O projeto usa OpenTK 4.9.4 e incorpora os arquivos GLSL no assembly durante a co
 | `R` | Reinicializar as mesmas 1.000.000 de esferas e seus materiais |
 | `F3` | Pausar ou retomar a coleta de diagnosticos |
 | `F4` | Salvar uma captura PNG do quadro atual para avaliacao |
+| `F5` | Ativar ou pausar a coleta do dataset |
 
 A velocidade inicial da camera e 5,5 unidades por segundo. O numero de discos nao e um controle de runtime: esta fixado em `SimulationSettings.DiskCount`.
 O rastreamento inicia ativado e grava uma linha JSONL por amostra em `%LOCALAPPDATA%/NPhysics/traces`. Salva tambem cinco quadros PNG automaticamente no inicio e aceita capturas adicionais por `F4` (limite de 20 por sessao), junto de metadados de camera/tempo no JSONL. As imagens ficam em uma pasta com o mesmo nome-base da sessao e sufixo `-frames`. O caminho da sessao aparece no console. A coleta usa readback GPU assincrono para contadores; capturas de imagem sao esparsas e fazem leitura sincronica do framebuffer. `F3` pausa/retoma a telemetria automatica.
+
+## Fase 1 de coleta neural
+
+A coleta binaria fica desativada por padrao. Ative-a com `F5` ou execute:
+
+```powershell
+dotnet run -- --count 4096 --seed 2026 --capture true
+```
+
+Os arquivos `.nphysdata` sao gravados em `%LOCALAPPDATA%/NPhysics/datasets/`. A captura usa staging buffers em anel e fences OpenGL; o solver convencional nao usa o caminho neural. Os formatos incrementais podem ser validados pelo `DatasetReader`.
+
+Valide um arquivo capturado sem abrir a janela:
+
+```powershell
+dotnet run -- --validate-dataset "C:\Users\Anna Beatriz\AppData\Local\NPhysics\datasets\dataset.nphysdata"
+```
+
+## Treinamento local da fase 3
+
+Treine um modelo a partir de um arquivo `.nphysdata`:
+
+```powershell
+dotnet run -- --train "C:\Users\Anna Beatriz\AppData\Local\NPhysics\datasets\dataset.nphysdata"
+```
+
+O modelo correspondente sera gravado com extensao `.nphysmodel`. A implementacao atual usa uma GNN Encode-Process-Decode em C#, Huber Loss separavel por componente, Adam e serializacao propria. O backprop do decoder esta implementado; o backprop completo do encoder e das duas passagens de mensagens continua pendente antes do treinamento de producao.
 
 ## Arquitetura
 

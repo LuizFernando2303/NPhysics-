@@ -14,7 +14,7 @@ internal sealed class PhysicsSimulation : GameWindow
 
     private readonly ProceduralTrack _track = new();
     private readonly GpuPhysics _physics = new();
-    private readonly Random _random = new(2026);
+    private readonly Random _random = new(SimulationSettings.Seed);
     private SceneRenderer? _renderer;
     private SimulationTrace? _trace;
     private SimulationFrameCapture? _frameCapture;
@@ -35,7 +35,7 @@ internal sealed class PhysicsSimulation : GameWindow
         : base(GameWindowSettings.Default, new NativeWindowSettings
         {
             ClientSize = new Vector2i(1280, 720),
-            Title = $"NPhysics - 1M esferas - rampa {SimulationSettings.InclinationDegrees:0} graus",
+            Title = $"NPhysics - {SimulationSettings.DiskCount} esferas - rampa {SimulationSettings.InclinationDegrees:0} graus",
             APIVersion = new Version(4, 3),
             Profile = ContextProfile.Core,
         })
@@ -103,6 +103,16 @@ internal sealed class PhysicsSimulation : GameWindow
         if (KeyboardState.IsKeyPressed(Keys.F4))
         {
             _manualFrameCaptureRequested = true;
+        }
+
+        if (KeyboardState.IsKeyPressed(Keys.F5))
+        {
+            var enabled = !_physics.IsDatasetCaptureEnabled;
+            _physics.SetDatasetCaptureEnabled(enabled);
+            Title = $"NPhysics | Captura dataset {(enabled ? "ativa" : "pausada")}";
+            Console.WriteLine(
+                $"Captura dataset {(enabled ? "ativada" : "pausada")}; "
+                + $"amostras={_physics.DatasetSampleCount:N0}");
         }
 
         if (_paused)

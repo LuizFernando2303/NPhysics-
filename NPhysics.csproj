@@ -9,5 +9,6 @@
   <ItemGroup>
     <PackageReference Include="OpenTK" Version="4.9.4" />
     <EmbeddedResource Include="Shaders\*.glsl" />
+    <EmbeddedResource Include="Shaders\Dataset\*.glsl" />
   </ItemGroup>
 </Project>

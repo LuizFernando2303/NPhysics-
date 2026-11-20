@@ -38,11 +38,28 @@ internal sealed class GpuPhysics : IDisposable
     private int _obstacleEndSegment = int.MinValue;
     private Obstacle[] _obstacles = [];
     private GpuDiagnostics? _diagnostics;
+    private DatasetGenerator? _datasetGenerator;
+    public int DiskCount => SimulationSettings.DiskCount;
 
     public int PositionBuffer => _positionBuffers[_currentState];
     public int MaterialBuffer => _materialBuffer;
     public int SpinBuffer => _spinBuffers[_currentState];
     public int VisibleDrawBuffer => _visibleDrawBuffer;
+    public bool IsDatasetCaptureEnabled => _datasetGenerator?.IsEnabled == true;
+    public long DatasetSampleCount => _datasetGenerator?.SampleCount ?? 0;
+
+    public void SetDatasetCaptureEnabled(bool enabled)
+    {
+        if (enabled && _datasetGenerator is null)
+        {
+            _datasetGenerator = new DatasetGenerator(new DatasetCaptureSettings
+            {
+                DiskCount = SimulationSettings.DiskCount,
+                Seed = SimulationSettings.Seed,
+            });
+        }
+        _datasetGenerator?.SetEnabled(enabled);
+    }
 
     public void Initialize(ProceduralTrack track, Random random)
     {
@@ -88,6 +105,10 @@ internal sealed class GpuPhysics : IDisposable
         _buildMetricsEnabledLocation = GL.GetUniformLocation(_buildProgram, "uMetricsEnabled");
         _simulateMetricsEnabledLocation = GL.GetUniformLocation(_simulateProgram, "uMetricsEnabled");
         _cullMetricsEnabledLocation = GL.GetUniformLocation(_cullProgram, "uMetricsEnabled");
+        if (SimulationSettings.DatasetCaptureEnabled)
+        {
+            SetDatasetCaptureEnabled(true);
+        }
 
         Reset(track, random);
         UpdateObstacles(track, -8f, force: true);
@@ -157,6 +178,20 @@ internal sealed class GpuPhysics : IDisposable
         ClearGrid();
         BuildGrid();
         Simulate(outputState, deltaTime);
+        _datasetGenerator?.Capture(
+            _currentState,
+            outputState,
+            _positionBuffers[_currentState],
+            _positionBuffers[outputState],
+            _velocityBuffers[_currentState],
+            _velocityBuffers[outputState],
+            _spinBuffers[_currentState],
+            _spinBuffers[outputState],
+            _gridBuffer,
+            _linksBuffer,
+            _materialBuffer,
+            deltaTime);
+        _datasetGenerator?.Poll();
         _currentState = outputState;
     }
 
@@ -219,6 +254,7 @@ internal sealed class GpuPhysics : IDisposable
     public void Dispose()
     {
         _diagnostics?.Dispose();
+        _datasetGenerator?.Dispose();
         GL.DeleteBuffer(_positionBuffers[0]);
         GL.DeleteBuffer(_positionBuffers[1]);
         GL.DeleteBuffer(_velocityBuffers[0]);
