@@ -60,26 +60,31 @@ Para compilar sem iniciar a janela:
 
 ```powershell
 dotnet build
+dotnet run -- --self-test
 ```
 
 O projeto usa OpenTK 4.9.4 e incorpora os arquivos GLSL no assembly durante a compilacao; os shaders nao precisam ser copiados para uma pasta externa na execucao.
 
 ## Controles
 
-| Tecla | Acao |
-|---|---|
-| `Espaco` | Pausar ou continuar a fisica e o movimento da camera |
-| `R` | Reinicializar a quantidade configurada de esferas e seus materiais |
-| `F3` | Pausar ou retomar a coleta de diagnosticos |
-| `F4` | Salvar uma captura PNG do quadro atual para avaliacao |
-| `F5` | Ativar ou pausar a coleta do dataset |
+| Botao na janela | Tecla alternativa | Acao |
+|---|---|---|
+| `PAUSE` / `RESUME` | `Espaco` | Pausar ou continuar a fisica e o movimento da camera |
+| `RESET` | `R` | Reinicializar a quantidade configurada de esferas e seus materiais |
+| `TRACE ON` / `TRACE OFF` | `F3` | Pausar ou retomar a coleta de diagnosticos |
+| `SAVE PNG` | `F4` | Salvar uma captura PNG do quadro atual para avaliacao |
+| `DATA ON` / `DATA OFF` | `F5` | Ativar ou pausar a coleta do dataset |
+| `REPORT` | — | Abrir no navegador o relatorio HTML mais recente |
 
 A velocidade inicial da camera e 5,5 unidades por segundo. A quantidade e seed podem ser informadas no inicio; para alterar a quantidade, reinicie o processo.
-O rastreamento inicia ativado e grava uma linha JSONL por amostra em `%LOCALAPPDATA%/NPhysics/traces`. Salva tambem cinco quadros PNG automaticamente no inicio e aceita capturas adicionais por `F4` (limite de 20 por sessao), junto de metadados de camera/tempo no JSONL. As imagens ficam em uma pasta com o mesmo nome-base da sessao e sufixo `-frames`. O caminho da sessao aparece no console. A coleta usa readback GPU assincrono para contadores; capturas de imagem sao esparsas e fazem leitura sincronica do framebuffer. `F3` pausa/retoma a telemetria automatica.
+A fileira de botoes fica no canto superior esquerdo da janela e tambem responde ao mouse. Os atalhos de teclado continuam disponiveis. `REPORT` abre o relatorio `.report.html` ou `.training.html` mais recente em `%LOCALAPPDATA%/NPhysics/datasets`.
+Desfocar ou minimizar a janela nao pausa a fisica nem a telemetria; use `PAUSE` ou `Espaco` para pausar explicitamente. A leitura de teclado e botoes so ocorre enquanto a janela esta focada.
+
+O rastreamento inicia ativado e grava uma linha JSONL por amostra em `%LOCALAPPDATA%/NPhysics/traces`. Salva tambem cinco quadros PNG automaticamente no inicio e aceita capturas adicionais pelo botao `SAVE PNG` ou `F4` (limite de 20 por sessao), junto de metadados de camera/tempo no JSONL. As imagens ficam em uma pasta com o mesmo nome-base da sessao e sufixo `-frames`. O caminho da sessao aparece no console. A coleta usa readback GPU assincrono para contadores; capturas de imagem sao esparsas e fazem leitura sincronica do framebuffer. `TRACE ON/OFF` ou `F3` pausa/retoma a telemetria automatica. Para evitar contenção dos atomics globais dos shaders, contadores detalhados ficam indisponiveis acima de 4.096 esferas; os tempos GPU e o trace continuam ativos, e o cabecalho JSONL registra essa disponibilidade.
 
 ## Fase 1 de coleta neural
 
-A coleta binaria fica desativada por padrao. Ative-a com `F5` ou execute:
+A captura binaria e os diagnosticos JSONL iniciam automaticamente em cada sessao. `DATA OFF` ou `F5` pausa somente a captura do dataset; `TRACE ON/OFF` ou `F3` controla os diagnosticos. Tambem e possivel substituir o padrao pela linha de comando com `--capture false` ou `--capture true`:
 
 ```powershell
 dotnet run -- --count 4096 --seed 2026 --capture true
@@ -88,6 +93,7 @@ dotnet run -- --count 4096 --seed 2026 --capture true
 Os arquivos `.nphysdata` sao gravados em `%LOCALAPPDATA%/NPhysics/datasets/`. A captura usa staging buffers em anel e fences OpenGL; o solver convencional nao usa o caminho neural. Os formatos incrementais podem ser validados pelo `DatasetReader`.
 
 A captura atual armazena amostras de 384 floats por esfera, com campos de estado, saidas-alvo, propriedades ambientais e ate 16 vizinhos. Blocos incluem metadados de frame, contagens de categorias e overflow. O schema e versionado; mudancas na ordem dos campos exigem incrementar a versao. A lista de configuracoes da captura em codigo nao significa que todos esses campos ja tenham opcoes de CLI.
+Por seguranca de memoria, cada SSBO de captura e limitado a 256 MiB e tambem respeita o limite de bloco do driver. O readback usa dois buffers em anel; para 100.000 esferas, o SSBO e de 153.600.064 bytes e a frequencia de captura e reduzida automaticamente para controlar o volume transferido. A coleta para automaticamente ao atingir um milhao de amostras (cerca de 1,5 GB para 100.000 esferas), gera um relatorio HTML e deixa a simulacao e os diagnosticos rodando. O relatorio tambem e atualizado ao fechar a sessao antes da meta. Configuracoes acima da capacidade sao recusadas sem encerrar a simulacao, com aviso explicito. Um quadro e reportado como descartado se os dois slots de readback estiverem ocupados. O trace JSONL de diagnosticos fica em `%LOCALAPPDATA%/NPhysics/traces`; os dados para treino e relatorios ficam em `%LOCALAPPDATA%/NPhysics/datasets/`.
 
 Valide um arquivo capturado sem abrir a janela:
 
@@ -95,23 +101,51 @@ Valide um arquivo capturado sem abrir a janela:
 dotnet run -- --validate-dataset "C:\Users\Anna Beatriz\AppData\Local\NPhysics\datasets\dataset.nphysdata"
 ```
 
-## Treinamento local da fase 3
-
-Treine um modelo a partir de um arquivo `.nphysdata`:
+Gere um painel HTML local com configuracoes da captura, contagens por categoria, overflow, vizinhos, estatisticas dos alvos fisicos e informacoes do modelo associado:
 
 ```powershell
-dotnet run -- --train "C:\Users\Anna Beatriz\AppData\Local\NPhysics\datasets\dataset.nphysdata"
+dotnet run -- --dataset-report "%LOCALAPPDATA%\NPhysics\datasets\dataset.nphysdata"
 ```
 
-O modelo correspondente sera gravado com extensao `.nphysmodel`. A implementacao atual tem um forward Encode-Process-Decode em C#, Huber Loss e otimizador Adam. O comando `--train` e um caminho experimental de uma passagem: o backprop atualmente atualiza apenas o decoder; o encoder, o edge encoder e as duas passagens de message passing nao recebem gradientes. Ainda nao ha mini-batches, divisao treino/validacao/teste, normalizacao calculada do dataset ou treinamento completo, portanto o arquivo gerado nao deve ser considerado um modelo treinado para fisica.
+O arquivo `.report.html` e salvo ao lado do dataset. Ele pode ser aberto em qualquer navegador e nao depende de servidor nem envia dados para a internet.
 
-Verifique carregamento/upload dos pesos e a equivalencia de uma camada linear na GPU:
+## Treinamento local da fase 3
+
+O treinador tem seu proprio executavel e detecta o dataset mais recente. Por padrao treina ate 25 mil amostras validas em minibatches de 256 nos:
+
+```powershell
+dotnet run --project TrainerApp\NPhysics.Trainer.csproj -c Release
+```
+
+Tambem aceita caminhos e limites explicitos:
+
+```powershell
+dotnet run --project TrainerApp\NPhysics.Trainer.csproj -c Release -- `
+  --dataset "%LOCALAPPDATA%\NPhysics\datasets\capture.nphysdata" `
+  --model "%LOCALAPPDATA%\NPhysics\datasets\model.nphysmodel" `
+  --samples 25000 --batch-size 256
+```
+
+O modelo `.nphysmodel` e o painel `.training.html` sao gravados no caminho de saida. O treino usa Huber e Adam; amostras marcadas com overflow sao excluidas individualmente, e arestas para nos fora do minibatch tambem sao removidas para manter a memoria limitada. O default e uma epoca sobre ate 25 mil amostras validas. Continua experimental: ainda nao calcula normalizacao estatistica a partir do dataset nem separa sessoes em treino/validacao/teste. A loss no painel e medida no conjunto de treino, nao e uma metrica de generalizacao.
+
+Verifique carregamento/upload dos pesos e a equivalencia do forward GNN entre C# e GLSL:
 
 ```powershell
 dotnet run -- --gpu-model-check "%LOCALAPPDATA%\NPhysics\datasets\dataset.nphysmodel"
 ```
 
-O formato v2 e a organizacao dos pesos no SSBO estao documentados em [docs/model-gpu-layout.md](docs/model-gpu-layout.md). Este probe verifica a leitura do modelo, packing/upload do SSBO e um compute linear; nao ativa a inferencia GNN nem altera o backend fisico.
+O formato v2 e a organizacao dos pesos no SSBO estao documentados em [docs/model-gpu-layout.md](docs/model-gpu-layout.md). O probe executa encoder, duas passagens message/update e decoder em um grafo pequeno e compara as correcoes com a referencia C#.
+
+## Simulador neural experimental
+
+O executavel separado abaixo carrega o modelo e usa suas correcoes como backend de movimento, sem executar o solver Teacher. A GNN roda na GPU; a preparacao do grafo e a transferencia sincrona do resultado passam pela CPU. O padrao e 2.048 esferas; aumente a contagem somente depois de observar o trace e a estabilidade:
+
+```powershell
+dotnet run --project ModelSimulator\NPhysics.ModelSimulator.csproj -c Release -- `
+  "%LOCALAPPDATA%\NPhysics\datasets\capture.nphysmodel" --count 2048
+```
+
+Para validar carregamento e alguns passos sem deixar a janela aberta, acrescente `--steps 10`. O modo e experimental: correcoes de posicao/velocidade/rotacao sao limitadas por seguranca, a vizinhanca considera no maximo 16 corpos, contatos com obstaculos ainda nao sao simulados e nao ha garantia de estabilidade acumulada nem equivalencia ao Teacher. O trace identifica `solverBackend: neural-experimental` e registra o modelo. A captura Teacher fica desativada neste executavel para nao gerar rotulos incorretos.
 
 ## Arquitetura
 
@@ -119,7 +153,9 @@ O codigo e separado por responsabilidade:
 
 | Caminho | Responsabilidade |
 |---|---|
-| `Program.cs` | Ponto de entrada; cria, executa e descarta a janela |
+| `Program.cs` | Ponto de entrada do Teacher e ferramentas de uma execucao |
+| `TrainerApp/` | Aplicacao de treino separada |
+| `ModelSimulator/` | Aplicacao que carrega e executa o backend neural experimental |
 | `PhysicsSimulation.cs` | Ciclo da janela OpenTK, entrada, acumulador de passo fixo, camera e coordenacao dos componentes |
 | `Physics/SimulationSettings.cs` | Parametros centralizados usados pela simulacao e pela geracao de shaders |
 | `Physics/GpuPhysics.cs` | Buffers SSBO, inicializacao das esferas, grade espacial, dispatch e estado fisico na GPU |
@@ -137,13 +173,15 @@ O codigo e separado por responsabilidade:
 | `Shaders/BuildGrid.comp.glsl` | Insere cada disco em uma celula hash e constroi as listas ligadas |
 | `Shaders/Simulate.comp.glsl` | Integracao translacional/rotacional, contatos com rampa/obstaculos e colisoes esfera-esfera |
 | `Shaders/Dataset/CaptureTraining.comp.glsl` | Captura de entradas, vizinhos, targets e metadados para dataset |
-| `Shaders/Neural/LinearProbe.comp.glsl` | Probe isolado de uma camada linear sobre pesos em SSBO; nao e o runtime de inferencia GNN |
+| `Shaders/Neural/EncodeNodes.comp.glsl` | Encoder de nos na GPU |
+| `Shaders/Neural/MessagePassing.comp.glsl` | Uma passagem compartilhada de mensagem, agregacao normalizada e atualizacao de nos |
+| `Shaders/Neural/DecodePhysics.comp.glsl` | Decoder das nove correcoes fisicas |
 | `Shaders/CullDisks.comp.glsl` | Descarta discos fora do frustum e prepara o comando de desenho indireto |
 | `Shaders/Surface.vert.glsl` | Posiciona vertices da rampa, obstaculos e discos instanciados |
 | `Shaders/Surface.frag.glsl` | Iluminacao direcional simples e cor dos materiais |
 | `NPhysics.csproj` | Target .NET, dependencia OpenTK e incorporacao dos shaders como recursos |
 
-O namespace das classes e `NPhysics`. A aplicacao exige contexto OpenGL 4.3 Core. A simulacao continua usando somente o backend Teacher; o pipeline neural de inferencia ainda nao esta integrado.
+O namespace das classes e `NPhysics`. As aplicacoes graficas exigem contexto OpenGL 4.3 Core. O executavel principal continua usando o backend Teacher; `ModelSimulator` e uma aplicacao experimental separada para testar a inferencia no passo de movimento.
 
 ## Fluxo de inicializacao e simulacao
 

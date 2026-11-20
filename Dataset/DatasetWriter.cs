@@ -9,6 +9,7 @@ internal sealed class DatasetWriter : IDisposable
     private readonly BinaryWriter _writer;
     private readonly object _sync = new();
     private long _sampleCount;
+    private bool _disposed;
 
     public DatasetWriter(
         DatasetCaptureSettings settings,
@@ -26,10 +27,16 @@ internal sealed class DatasetWriter : IDisposable
     public string FilePath => _filePath;
     public long SampleCount => _sampleCount;
 
-    public void WriteBlock(float[] samples, uint overflowCount, uint[] categories, uint frameIndex)
+    public void WriteBlock(
+        float[] samples,
+        int sampleFloatCount,
+        uint overflowCount,
+        uint[] categories,
+        uint frameIndex)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(samples.Length);
-        if (samples.Length % DatasetSchema.FloatsPerSample != 0)
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleFloatCount);
+        if (sampleFloatCount > samples.Length
+            || sampleFloatCount % DatasetSchema.FloatsPerSample != 0)
         {
             throw new ArgumentException("O bloco possui um tamanho de amostra invalido.");
         }
@@ -43,8 +50,8 @@ internal sealed class DatasetWriter : IDisposable
         {
             _writer.Write(DatasetSchema.BlockHeaderSize);
             _writer.Write((uint)frameIndex);
-            _writer.Write((uint)(samples.Length / DatasetSchema.FloatsPerSample));
-            _writer.Write((uint)samples.Length);
+            _writer.Write((uint)(sampleFloatCount / DatasetSchema.FloatsPerSample));
+            _writer.Write((uint)sampleFloatCount);
             _writer.Write(overflowCount);
             for (var i = 0; i < 6; i++)
             {
@@ -55,8 +62,9 @@ internal sealed class DatasetWriter : IDisposable
             _writer.Write((uint)0);
             _writer.Write((uint)0);
             _writer.Write((uint)0);
-            foreach (var value in samples)
+            for (var i = 0; i < sampleFloatCount; i++)
             {
+                var value = samples[i];
                 _writer.Write(value);
                 if (float.IsNaN(value) || float.IsInfinity(value))
                 {
@@ -64,7 +72,7 @@ internal sealed class DatasetWriter : IDisposable
                 }
             }
             _writer.Flush();
-            _sampleCount += samples.Length / DatasetSchema.FloatsPerSample;
+            _sampleCount += sampleFloatCount / DatasetSchema.FloatsPerSample;
         }
     }
 
@@ -112,7 +120,13 @@ internal sealed class DatasetWriter : IDisposable
     {
         lock (_sync)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             _writer.Dispose();
+            _disposed = true;
         }
     }
 }

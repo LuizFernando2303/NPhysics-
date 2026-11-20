@@ -5,10 +5,18 @@ internal static class Program
     private static void Main()
     {
         TrainingSmokeTests.Run();
-        for (var i = 0; i < Environment.GetCommandLineArgs().Length - 1; i++)
+        SimulationHudSmokeTests.Run();
+        DatasetCaptureSmokeTests.Run();
+        var commandLineArguments = Environment.GetCommandLineArgs();
+        if (commandLineArguments.Length == 2 && commandLineArguments[1] == "--self-test")
         {
-            var argument = Environment.GetCommandLineArgs()[i];
-            var value = Environment.GetCommandLineArgs()[i + 1];
+            Console.WriteLine("Smoke tests aprovados.");
+            return;
+        }
+        for (var i = 0; i < commandLineArguments.Length - 1; i++)
+        {
+            var argument = commandLineArguments[i];
+            var value = commandLineArguments[i + 1];
             switch (argument)
             {
                 case "--count":
@@ -29,38 +37,11 @@ internal static class Program
                     i++;
                     break;
                 case "--train":
-                    var network = new GraphNetwork();
-                    var trainer = new GraphTrainer(
-                        network,
-                        new AdamOptimizer(1e-3f));
-                    var frameCount = 0;
-                    var lossSum = 0d;
-                    foreach (var frame in DatasetLoader.Read(value))
-                    {
-                        lossSum += trainer.TrainSample(
-                            frame.NodeInput,
-                            frame.EdgeFlat,
-                            frame.EdgeCounts,
-                            frame.EdgeTargets,
-                            frame.Target);
-                        frameCount++;
-                    }
-                    if (frameCount == 0)
-                    {
-                        throw new InvalidDataException("O dataset nao contem amostras.");
-                    }
-                    var modelPath = Path.ChangeExtension(value, ".nphysmodel");
-                    ModelSerializer.Save(
-                        modelPath,
-                        network,
-                        new float[GraphNetwork.NodeInputSize],
-                        Enumerable.Repeat(1f, GraphNetwork.NodeInputSize).ToArray(),
-                        new float[GraphNetwork.OutputSize],
-                        Enumerable.Repeat(1f, GraphNetwork.OutputSize).ToArray(),
-                        ModelSerializer.HashFile(value),
-                        $"epochs=1 blocks={frameCount} loss={lossSum / frameCount:0.000000}");
-                    Console.WriteLine(
-                        $"Modelo salvo em {modelPath}; loss medio={(lossSum / frameCount):0.000000}");
+                    TrainingCommand.Run(value);
+                    return;
+                case "--dataset-report":
+                    var reportPath = TrainingDashboard.WriteDatasetReport(value);
+                    Console.WriteLine($"Relatorio do dataset salvo em {reportPath}");
                     return;
                 case "--validate-dataset":
                     long sampleTotal = 0;
@@ -90,4 +71,5 @@ internal static class Program
         using var simulation = new PhysicsSimulation();
         simulation.Run();
     }
+
 }

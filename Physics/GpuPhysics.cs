@@ -39,6 +39,12 @@ internal sealed class GpuPhysics : IDisposable
     private Obstacle[] _obstacles = [];
     private GpuDiagnostics? _diagnostics;
     private DatasetGenerator? _datasetGenerator;
+    private NeuralPhysicsBackend? _neuralBackend;
+    private ProceduralTrack? _trackForNeural;
+    private float[][]? _neuralPositions;
+    private float[][]? _neuralVelocities;
+    private float[][]? _neuralSpins;
+    private float[]? _neuralMaterials;
     public int DiskCount => SimulationSettings.DiskCount;
 
     public int PositionBuffer => _positionBuffers[_currentState];
@@ -46,28 +52,49 @@ internal sealed class GpuPhysics : IDisposable
     public int SpinBuffer => _spinBuffers[_currentState];
     public int VisibleDrawBuffer => _visibleDrawBuffer;
     public bool IsDatasetCaptureEnabled => _datasetGenerator?.IsEnabled == true;
+    public bool IsModelBackend => _neuralBackend is not null;
     public long DatasetSampleCount => _datasetGenerator?.SampleCount ?? 0;
+    public bool DetailedCountersAvailable => _diagnostics?.DetailedCountersAvailable == true;
 
     public void SetDatasetCaptureEnabled(bool enabled)
     {
+        if (enabled && IsModelBackend)
+        {
+            throw new InvalidOperationException(
+                "A captura Teacher foi desativada no simulador neural para evitar rotulos incorretos.");
+        }
         if (enabled && _datasetGenerator is null)
         {
             _datasetGenerator = new DatasetGenerator(new DatasetCaptureSettings
             {
                 DiskCount = SimulationSettings.DiskCount,
                 Seed = SimulationSettings.Seed,
+                CaptureFrequency = DatasetCaptureSettings.GetCaptureFrequency(
+                    SimulationSettings.DiskCount),
             });
         }
         _datasetGenerator?.SetEnabled(enabled);
     }
 
-    public void Initialize(ProceduralTrack track, Random random)
+    public void Initialize(ProceduralTrack track, Random random, string? neuralModelPath = null)
     {
+        _trackForNeural = track;
+        if (neuralModelPath is not null)
+        {
+            _neuralBackend = new NeuralPhysicsBackend(neuralModelPath);
+        }
         _clearProgram = GlProgram.CreateCompute(ShaderSource.Load("ClearGrid.comp"));
         _buildProgram = GlProgram.CreateCompute(ShaderSource.Load("BuildGrid.comp"));
         _simulateProgram = GlProgram.CreateCompute(ShaderSource.Load("Simulate.comp"));
         _cullProgram = GlProgram.CreateCompute(ShaderSource.Load("CullDisks.comp"));
-        _diagnostics = new GpuDiagnostics();
+        _diagnostics = new GpuDiagnostics(SimulationSettings.DiskCount);
+        if (!_diagnostics.DetailedCountersAvailable)
+        {
+            Console.WriteLine(
+                $"Contadores GPU detalhados desativados acima de "
+                + $"{GpuDiagnostics.MaximumDiskCountForDetailedCounters:N0} esferas para evitar "
+                + "contenção de atomics; os tempos GPU continuam disponiveis no trace.");
+        }
 
         _positionBuffers[0] = GL.GenBuffer();
         _positionBuffers[1] = GL.GenBuffer();
@@ -107,7 +134,20 @@ internal sealed class GpuPhysics : IDisposable
         _cullMetricsEnabledLocation = GL.GetUniformLocation(_cullProgram, "uMetricsEnabled");
         if (SimulationSettings.DatasetCaptureEnabled)
         {
-            SetDatasetCaptureEnabled(true);
+            try
+            {
+                SetDatasetCaptureEnabled(true);
+            }
+            catch (Exception exception) when (
+                exception is NotSupportedException
+                    or OutOfMemoryException
+                    or InvalidOperationException
+                    or OverflowException)
+            {
+                Console.Error.WriteLine(
+                    $"Captura automatica de dataset indisponivel; a simulacao e o trace continuam ativos: "
+                    + exception.Message);
+            }
         }
 
         Reset(track, random);
@@ -169,6 +209,13 @@ internal sealed class GpuPhysics : IDisposable
         UploadArray(_spinBuffers[0], spinStates);
         UploadArray(_spinBuffers[1], spinStates);
         UploadArray(_materialBuffer, materials);
+        if (_neuralBackend is not null)
+        {
+            _neuralPositions = [positions, (float[])positions.Clone()];
+            _neuralVelocities = [velocities, (float[])velocities.Clone()];
+            _neuralSpins = [spinStates, (float[])spinStates.Clone()];
+            _neuralMaterials = materials;
+        }
         _currentState = 0;
     }
 
@@ -177,7 +224,31 @@ internal sealed class GpuPhysics : IDisposable
         var outputState = 1 - _currentState;
         ClearGrid();
         BuildGrid();
-        Simulate(outputState, deltaTime);
+        if (_neuralBackend is null)
+        {
+            Simulate(outputState, deltaTime);
+        }
+        else
+        {
+            var positions = _neuralPositions!;
+            var velocities = _neuralVelocities!;
+            var spins = _neuralSpins!;
+            _diagnostics!.BeginSimulationTiming();
+            _neuralBackend.Step(
+                _trackForNeural ?? throw new InvalidOperationException("Pista neural nao inicializada."),
+                positions[_currentState],
+                velocities[_currentState],
+                spins[_currentState],
+                _neuralMaterials!,
+                positions[outputState],
+                velocities[outputState],
+                spins[outputState],
+                deltaTime);
+            UploadBuffer(_positionBuffers[outputState], positions[outputState]);
+            UploadBuffer(_velocityBuffers[outputState], velocities[outputState]);
+            UploadBuffer(_spinBuffers[outputState], spins[outputState]);
+            _diagnostics.EndSimulationTiming();
+        }
         _datasetGenerator?.Capture(
             _currentState,
             outputState,
@@ -216,7 +287,7 @@ internal sealed class GpuPhysics : IDisposable
             2,
             _diagnostics!.MetricsBuffer);
         GL.Uniform1(_cullDiskCountLocation, (uint)SimulationSettings.DiskCount);
-        GL.Uniform1(_cullMetricsEnabledLocation, _diagnostics!.Enabled ? 1 : 0);
+        GL.Uniform1(_cullMetricsEnabledLocation, _diagnostics!.DetailedCountersEnabled ? 1 : 0);
         GL.UniformMatrix4(_viewProjectionLocation, false, ref viewProjection);
         _diagnostics.BeginCullingTiming();
         GL.DispatchCompute((SimulationSettings.DiskCount + 255) / 256, 1, 1);
@@ -255,6 +326,7 @@ internal sealed class GpuPhysics : IDisposable
     {
         _diagnostics?.Dispose();
         _datasetGenerator?.Dispose();
+        _neuralBackend?.Dispose();
         GL.DeleteBuffer(_positionBuffers[0]);
         GL.DeleteBuffer(_positionBuffers[1]);
         GL.DeleteBuffer(_velocityBuffers[0]);
@@ -291,7 +363,7 @@ internal sealed class GpuPhysics : IDisposable
         GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 5, _linksBuffer);
         GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 6, _diagnostics!.MetricsBuffer);
         GL.Uniform1(_buildDiskCountLocation, (uint)SimulationSettings.DiskCount);
-        GL.Uniform1(_buildMetricsEnabledLocation, _diagnostics.Enabled ? 1 : 0);
+        GL.Uniform1(_buildMetricsEnabledLocation, _diagnostics.DetailedCountersEnabled ? 1 : 0);
         _diagnostics.BeginGridBuildTiming();
         GL.DispatchCompute((SimulationSettings.DiskCount + WorkGroupSize - 1) / WorkGroupSize, 1, 1);
         GL.MemoryBarrier(MemoryBarrierFlags.ShaderStorageBarrierBit);
@@ -313,7 +385,7 @@ internal sealed class GpuPhysics : IDisposable
         GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 9, _spinBuffers[_currentState]);
         GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 10, _spinBuffers[outputState]);
         GL.Uniform1(_simulateDiskCountLocation, (uint)SimulationSettings.DiskCount);
-        GL.Uniform1(_simulateMetricsEnabledLocation, _diagnostics.Enabled ? 1 : 0);
+        GL.Uniform1(_simulateMetricsEnabledLocation, _diagnostics.DetailedCountersEnabled ? 1 : 0);
         GL.Uniform1(_obstacleCountLocation, _obstacles.Length);
         GL.Uniform1(_deltaTimeLocation, deltaTime);
         _diagnostics.BeginSimulationTiming();
@@ -373,6 +445,16 @@ internal sealed class GpuPhysics : IDisposable
             values.Length * sizeof(float),
             values,
             BufferUsageHint.DynamicDraw);
+    }
+
+    private static void UploadBuffer(int buffer, float[] values)
+    {
+        GL.BindBuffer(BufferTarget.ShaderStorageBuffer, buffer);
+        GL.BufferSubData(
+            BufferTarget.ShaderStorageBuffer,
+            IntPtr.Zero,
+            checked(values.Length * sizeof(float)),
+            values);
     }
 
     private static float RandomRange(Random random, float min, float max)

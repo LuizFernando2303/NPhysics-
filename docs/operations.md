@@ -43,15 +43,21 @@ dotnet run -- --count 4096 --seed 2026
 
 Altera buffers, dispatches, reset e culling. O custo cresce aproximadamente de forma linear no trabalho por disco, mas contatos podem ficar mais caros de forma nao linear quando a densidade local aumenta. O valor precisa ser positivo; reiniciar a aplicacao e necessario para alterar a quantidade.
 
-Ative coleta durante o startup com `--capture true` ou use `F5`. A coleta grava `.nphysdata` no diretorio LocalAppData padrao. Validacao e ferramentas de modelo sao comandos one-shot:
+Os controles interativos aparecem como botoes no canto superior esquerdo da janela: pausar/continuar, resetar, alternar diagnosticos, salvar PNG, alternar coleta de dataset e abrir o relatorio HTML mais recente. Os atalhos `Espaco`, `R` e `F3`-`F5` continuam como alternativas. O clique executa uma unica acao por pressao, inclusive se o botao do mouse ficar mantido. A captura de dataset e o trace JSONL de diagnosticos iniciam automaticamente; `DATA OFF`/`F5` e `TRACE ON/OFF`/`F3` permitem controla-los de forma independente. `--capture false` desativa a captura automatica para uma execucao. Cada SSBO da captura e limitado a 256 MiB e respeita o limite do driver. O readback mantem dois slots; para simulacoes grandes, a frequencia e reduzida automaticamente para limitar transferencias a aproximadamente 64 MiB/s. Em 100.000 esferas, um quadro ocupa 153.600.064 bytes e e amostrado a cada 275 passos. A captura encerra ao atingir um milhao de amostras (aproximadamente 1,5 GB para 100 mil esferas), gera um relatorio HTML automaticamente e deixa a simulacao/diagnosticos ativos. Ao fechar antes da meta, o relatorio e gerado para os dados validos coletados. Configuracoes acima da capacidade sao recusadas sem encerrar a simulacao e informadas no console. Os arquivos `.nphysdata` e relatorios ficam no diretorio LocalAppData padrao; o trace JSONL e gravado em `%LOCALAPPDATA%/NPhysics/traces`. Validacao e ferramentas de modelo sao comandos one-shot:
 
 ```powershell
+dotnet run -- --self-test
 dotnet run -- --validate-dataset "C:\path\to\capture.nphysdata"
+dotnet run -- --dataset-report "C:\path\to\capture.nphysdata"
 dotnet run -- --train "C:\path\to\capture.nphysdata"
 dotnet run -- --gpu-model-check "C:\path\to\capture.nphysmodel"
+dotnet run --project TrainerApp\NPhysics.Trainer.csproj -c Release -- --samples 25000 --batch-size 256
+dotnet run --project ModelSimulator\NPhysics.ModelSimulator.csproj -c Release -- "C:\path\to\model.nphysmodel" --count 2048
 ```
 
-`--train` e experimental e nao representa treinamento completo: atualmente atualiza apenas o decoder. `--gpu-model-check` abre contexto OpenGL temporario e valida o upload SSBO e um produto matriz-vetor; nao roda inferencia GNN nem inicia a simulacao.
+`--dataset-report` gera um painel HTML local com configuracao e qualidade do dataset. O treinador separado seleciona o dataset mais recente por padrao, permite escolher arquivo/saida/limites, ignora amostras com overflow e executa minibatches limitados em memoria. Seu painel `.training.html` mostra a loss de treino; ainda nao ha split de validacao nem garantia de generalizacao. `--gpu-model-check` compara o forward GNN com a referencia C# sem iniciar a simulacao.
+
+`ModelSimulator` carrega um `.nphysmodel` e substitui o solver Teacher por inferencia GNN para os deltas de estado. A preparacao de nos/vizinhos e feita na CPU, a inferencia na GPU e o estado previsto e lido sincronicamente para aplicar limites de seguranca; por isso use inicialmente poucas esferas. Contatos com obstaculos ainda nao sao tratados, e o caminho nao tem estabilidade acumulada certificada; permanece separado do executavel principal. `--steps N` fecha automaticamente apos N passos para smoke tests. O trace marca o backend e o caminho do modelo usado.
 
 ### Alterar grade hash
 

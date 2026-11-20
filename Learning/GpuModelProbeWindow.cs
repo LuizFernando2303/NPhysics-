@@ -1,4 +1,3 @@
-using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
@@ -9,9 +8,7 @@ internal sealed class GpuModelProbeWindow : GameWindow
 {
     private readonly string _modelPath;
     private GpuModelWeights? _weights;
-    private int _probeProgram;
-    private int _inputBuffer;
-    private int _outputBuffer;
+    private GpuGraphInference? _inference;
 
     public GpuModelProbeWindow(string modelPath)
         : base(GameWindowSettings.Default, new NativeWindowSettings
@@ -32,62 +29,46 @@ internal sealed class GpuModelProbeWindow : GameWindow
         {
             var model = ModelSerializer.Load(_modelPath);
             _weights = new GpuModelWeights(model);
-            var layer = _weights.GetLayer("node_encoder");
-            var layerParameters = model.Layers.Single(item => item.Name == layer.Name);
+            _inference = new GpuGraphInference(_weights);
 
-            _probeProgram = GlProgram.CreateCompute(ShaderSource.Load("Neural/LinearProbe.comp"));
-            var input = new float[layer.InputSize];
-            for (var i = 0; i < input.Length; i++)
+            var nodeCount = 3;
+            var nodeInputs = new float[nodeCount * GraphNetwork.NodeInputSize];
+            for (var i = 0; i < nodeInputs.Length; i++)
             {
-                input[i] = (i - input.Length / 2) * 0.03125f;
+                nodeInputs[i] = MathF.Sin(i * 0.17f) * 0.2f;
             }
-            var output = new float[layer.OutputSize];
-            _inputBuffer = CreateBuffer(input);
-            _outputBuffer = CreateBuffer(output);
-            _weights.Bind(0);
-            GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 1, _inputBuffer);
-            GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 2, _outputBuffer);
-
-            GL.UseProgram(_probeProgram);
-            SetUniform("uInputSize", (uint)layer.InputSize);
-            SetUniform("uOutputSize", (uint)layer.OutputSize);
-            SetUniform("uWeightOffset", (uint)layer.WeightFloatOffset);
-            SetUniform("uBiasOffset", (uint)layer.BiasFloatOffset);
-            GL.DispatchCompute((layer.OutputSize + 63) / 64, 1, 1);
-            GL.MemoryBarrier(
-                MemoryBarrierFlags.ShaderStorageBarrierBit
-                | MemoryBarrierFlags.BufferUpdateBarrierBit);
-
-            GL.BindBuffer(BufferTarget.ShaderStorageBuffer, _outputBuffer);
-            GL.GetBufferSubData(
-                BufferTarget.ShaderStorageBuffer,
-                IntPtr.Zero,
-                output.Length * sizeof(float),
-                output);
-            var maxError = 0f;
-            for (var row = 0; row < output.Length; row++)
+            var edgeCounts = new[] { 2, 1, 0 };
+            var edgeTargets = new[] { 1, 2, 0 };
+            var edgeFeatures = new float[edgeTargets.Length * GraphNetwork.EdgeInputSize];
+            for (var i = 0; i < edgeFeatures.Length; i++)
             {
-                if (!float.IsFinite(output[row]))
-                {
-                    throw new InvalidDataException("Compute shader produziu NaN ou Infinity.");
-                }
-                var expected = layerParameters.Bias[row];
-                var weightOffset = row * layer.InputSize;
-                for (var column = 0; column < layer.InputSize; column++)
-                {
-                    expected += layerParameters.Weights[weightOffset + column] * input[column];
-                }
-                maxError = MathF.Max(maxError, MathF.Abs(output[row] - expected));
+                edgeFeatures[i] = MathF.Cos(i * 0.11f) * 0.15f;
             }
-            if (maxError > 1e-4f)
+
+            var reference = new GraphNetwork(seed: 0);
+            reference.LoadParameters(model);
+            var expected = reference.Forward(nodeInputs, edgeFeatures, edgeCounts, edgeTargets);
+            var actual = _inference.Forward(nodeInputs, edgeFeatures, edgeCounts, edgeTargets);
+            var maximumError = 0f;
+            var squaredError = 0d;
+            for (var i = 0; i < expected.Length; i++)
+            {
+                var error = MathF.Abs(expected[i] - actual[i]);
+                maximumError = MathF.Max(maximumError, error);
+                squaredError += error * error;
+            }
+            var rootMeanSquaredError = Math.Sqrt(squaredError / expected.Length);
+            const float tolerance = 5e-4f;
+            if (maximumError > tolerance)
             {
                 throw new InvalidOperationException(
-                    $"GPU model probe falhou: erro maximo {maxError:G8} excede 1e-4.");
+                    $"GNN GPU probe falhou: erro maximo {maximumError:G8} excede {tolerance:G8}.");
             }
 
             Console.WriteLine(
-                $"GPU model probe aprovado: {layer.Name}, {layer.InputSize}->{layer.OutputSize}, "
-                + $"{_weights.ByteSize:N0} bytes SSBO, erro maximo={maxError:G8}.");
+                $"GNN GPU probe aprovado: nos={nodeCount}, arestas={edgeTargets.Length}, "
+                + $"pesos={_weights.ByteSize:N0} bytes, erro maximo={maximumError:G8}, "
+                + $"RMSE={rootMeanSquaredError:G8}.");
         }
         finally
         {
@@ -97,32 +78,8 @@ internal sealed class GpuModelProbeWindow : GameWindow
 
     protected override void OnUnload()
     {
-        if (_inputBuffer != 0) GL.DeleteBuffer(_inputBuffer);
-        if (_outputBuffer != 0) GL.DeleteBuffer(_outputBuffer);
-        if (_probeProgram != 0) GL.DeleteProgram(_probeProgram);
+        _inference?.Dispose();
         _weights?.Dispose();
         base.OnUnload();
-    }
-
-    private static int CreateBuffer(float[] values)
-    {
-        var buffer = GL.GenBuffer();
-        GL.BindBuffer(BufferTarget.ShaderStorageBuffer, buffer);
-        GL.BufferData(
-            BufferTarget.ShaderStorageBuffer,
-            values.Length * sizeof(float),
-            values,
-            BufferUsageHint.DynamicDraw);
-        return buffer;
-    }
-
-    private void SetUniform(string name, uint value)
-    {
-        var location = GL.GetUniformLocation(_probeProgram, name);
-        if (location < 0)
-        {
-            throw new InvalidOperationException($"Uniform obrigatorio nao encontrado: {name}.");
-        }
-        GL.Uniform1(location, value);
     }
 }

@@ -9,6 +9,7 @@ internal sealed class GpuDiagnostics : IDisposable
     private const int MetricBufferSize = MetricCount * sizeof(uint);
     private const int ReadbackSlotCount = 4;
     private const int TimerQuerySlotCount = 4;
+    public const int MaximumDiskCountForDetailedCounters = 4_096;
     private static readonly TimeSpan CaptureInterval = TimeSpan.FromSeconds(1);
 
     private readonly ReadbackSlot[] _readbackSlots = new ReadbackSlot[ReadbackSlotCount];
@@ -18,14 +19,17 @@ internal sealed class GpuDiagnostics : IDisposable
     private readonly GpuTimerPool _cullingTimers = new(TimerQuerySlotCount);
     private readonly GpuTimerPool _drawingTimers = new(TimerQuerySlotCount);
     private readonly uint[] _zeroMetrics = new uint[MetricCount];
+    private readonly bool _detailedCountersAvailable;
     private long _lastCaptureTimestamp = Stopwatch.GetTimestamp();
     private long _captureId;
     private int _nextReadbackSlot;
     private bool _enabled = true;
     private bool _disposed;
 
-    public GpuDiagnostics()
+    public GpuDiagnostics(int diskCount)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(diskCount);
+        _detailedCountersAvailable = diskCount <= MaximumDiskCountForDetailedCounters;
         MetricsBuffer = GL.GenBuffer();
         GL.BindBuffer(BufferTarget.ShaderStorageBuffer, MetricsBuffer);
         GL.BufferData(
@@ -49,6 +53,8 @@ internal sealed class GpuDiagnostics : IDisposable
 
     public int MetricsBuffer { get; }
     public bool Enabled => _enabled;
+    public bool DetailedCountersAvailable => _detailedCountersAvailable;
+    public bool DetailedCountersEnabled => _enabled && _detailedCountersAvailable;
 
     public void ResetWindow()
     {

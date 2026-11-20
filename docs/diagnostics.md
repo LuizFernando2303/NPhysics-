@@ -46,6 +46,8 @@ Uma linha `type: "sample"` e capturada aproximadamente a cada segundo. O conteud
 
 Os contadores GPU sao limpos depois que uma janela e copiada para um buffer de readback. A leitura CPU ocorre apenas quando uma fence indica que a copia ja terminou. A consulta a fence usa timeout zero. Quatro slots evitam bloquear o frame; se estiverem todos pendentes, a captura e adiada, e a janela seguinte acumula mais tempo.
 
+Os contadores detalhados usam atomics globais nos shaders e podem serializar uma carga de muitas esferas. Para mais de 4.096 esferas, o projeto os desativa para preservar a responsividade; os tempos GPU por query e o registro JSONL continuam ativos. Nesse modo, campos de contagem ficam zerados e o cabecalho `session` registra `detailedGpuCountersAvailable: false`. A ativacao/desativacao por mouse e processada uma vez por clique, nao repetidamente enquanto o botao fica pressionado.
+
 ### Eventos
 
 Linhas `type: "event"` documentam reinicializacoes. Linhas `type: "capture"` registram ativacao e pausa da instrumentacao. Esses registros permitem separar mudancas de estado intencionais de instabilidade numerica.

@@ -2,6 +2,20 @@ using System.Text;
 
 namespace NPhysics;
 
+internal sealed record DatasetMetadata(
+    ushort SchemaVersion,
+    int DiskCount,
+    int Seed,
+    int CaptureFrequency,
+    int MaxSamples,
+    int MaxNeighbors,
+    float FixedStep,
+    float Gravity,
+    float InclinationDegrees,
+    string SessionId,
+    string ShaderHash,
+    string SolverHash);
+
 internal sealed class DatasetReader : IDisposable
 {
     private readonly FileStream _stream;
@@ -11,6 +25,60 @@ internal sealed class DatasetReader : IDisposable
     {
         _stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         _reader = new BinaryReader(_stream, Encoding.UTF8, leaveOpen: false);
+    }
+
+    public DatasetMetadata ReadMetadata()
+    {
+        _stream.Position = 0;
+        if (_reader.ReadUInt32() != DatasetSchema.Magic)
+        {
+            throw new InvalidDataException("Arquivo .nphysdata invalido.");
+        }
+
+        var schemaVersion = _reader.ReadUInt16();
+        if (schemaVersion != DatasetSchema.SchemaVersion
+            || _reader.ReadUInt16() != sizeof(float)
+            || _reader.ReadUInt16() != DatasetSchema.FloatsPerSample)
+        {
+            throw new InvalidDataException("Formato do cabecalho do dataset nao suportado.");
+        }
+
+        var diskCount = _reader.ReadInt32();
+        var seed = _reader.ReadInt32();
+        var captureFrequency = _reader.ReadInt32();
+        var maxSamples = _reader.ReadInt32();
+        var maxNeighbors = _reader.ReadInt32();
+        var fixedStep = _reader.ReadSingle();
+        var gravity = _reader.ReadSingle();
+        var inclinationDegrees = _reader.ReadSingle();
+        var sessionId = ReadFixedString(64);
+        var shaderHash = ReadFixedString(64);
+        var solverHash = ReadFixedString(64);
+        if (diskCount <= 0
+            || captureFrequency <= 0
+            || maxSamples <= 0
+            || maxNeighbors <= 0
+            || !float.IsFinite(fixedStep)
+            || fixedStep <= 0f
+            || !float.IsFinite(gravity)
+            || !float.IsFinite(inclinationDegrees))
+        {
+            throw new InvalidDataException("Metadados invalidos no cabecalho do dataset.");
+        }
+
+        return new DatasetMetadata(
+            schemaVersion,
+            diskCount,
+            seed,
+            captureFrequency,
+            maxSamples,
+            maxNeighbors,
+            fixedStep,
+            gravity,
+            inclinationDegrees,
+            sessionId,
+            shaderHash,
+            solverHash);
     }
 
     public IEnumerable<(uint FrameIndex, float[] Samples, uint OverflowCount, uint[] Categories)> ReadBlocks()
@@ -64,5 +132,16 @@ internal sealed class DatasetReader : IDisposable
     public void Dispose()
     {
         _reader.Dispose();
+    }
+
+    private string ReadFixedString(int byteCount)
+    {
+        var bytes = _reader.ReadBytes(byteCount);
+        if (bytes.Length != byteCount)
+        {
+            throw new EndOfStreamException("Cabecalho de dataset truncado.");
+        }
+        var length = Array.IndexOf(bytes, (byte)0);
+        return Encoding.UTF8.GetString(bytes, 0, length < 0 ? bytes.Length : length);
     }
 }

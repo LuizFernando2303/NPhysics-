@@ -162,51 +162,58 @@ void main()
             {
                 vec4 otherDisk = positionsIn[otherId];
                 vec4 otherMaterial = materials[otherId];
-                vec3 relativePosition = otherDisk.xyz - freePosition;
-                float centerDistance = length(relativePosition);
-                float contactDistance = radius + otherDisk.w;
-                float penetration = contactDistance - centerDistance;
-                if (penetration > 0.0)
+                ivec3 otherCell = ivec3(floor(otherDisk.xyz / CELL_SIZE));
+                ivec3 candidateCell = gridCell + ivec3(x, y, z);
+                if (all(equal(otherCell, candidateCell)))
                 {
-                    hasSphereContact = true;
-                    contactCount++;
-                }
-                vec3 otherVelocity = velocitiesIn[otherId].xyz;
-                vec3 relativeVelocity = otherVelocity - freeVelocity;
-                vec3 otherAngular = spinStatesIn[otherId * 2u + 1u].xyz;
-                vec3 relativeAngular = otherAngular - angularBefore;
-                vec3 normal = centerDistance > 0.000001
-                    ? -relativePosition / centerDistance
-                    : vec3(1.0, 0.0, 0.0);
-                vec3 relativeContactVelocity = freeVelocity
-                    + cross(angularBefore, -normal * radius)
-                    - otherVelocity
-                    - cross(otherAngular, normal * otherDisk.w);
-                float relativeSpeed = length(relativeContactVelocity);
-                highestRelativeSpeed = max(highestRelativeSpeed, relativeSpeed);
+                    vec3 relativePosition = otherDisk.xyz - freePosition;
+                    float centerDistance = length(relativePosition);
+                    float contactDistance = radius + otherDisk.w;
+                    float penetration = contactDistance - centerDistance;
+                    if (penetration > 0.0)
+                    {
+                        hasSphereContact = true;
+                        contactCount++;
+                    }
+                    vec3 otherVelocity = velocitiesIn[otherId].xyz;
+                    vec3 relativeVelocity = otherVelocity - freeVelocity;
+                    vec3 otherAngular = spinStatesIn[otherId * 2u + 1u].xyz;
+                    vec3 relativeAngular = otherAngular - angularBefore;
+                    vec3 normal = centerDistance > 0.000001
+                        ? -relativePosition / centerDistance
+                        : vec3(1.0, 0.0, 0.0);
+                    vec3 relativeContactVelocity = freeVelocity
+                        + cross(angularBefore, -normal * radius)
+                        - otherVelocity
+                        - cross(otherAngular, normal * otherDisk.w);
+                    float relativeSpeed = length(relativeContactVelocity);
+                    highestRelativeSpeed = max(highestRelativeSpeed, relativeSpeed);
 
-                if (centerDistance <= contactDistance + CELL_SIZE
-                    && neighborCount < uMaxNeighbors)
-                {
-                    uint neighborBase = baseIndex + 48u + neighborCount * 20u;
-                    writeVec3(neighborBase + 0u, relativePosition);
-                    capture[neighborBase + 3u] = centerDistance;
-                    writeVec3(neighborBase + 4u, relativeVelocity);
-                    writeVec3(neighborBase + 7u, relativeAngular);
-                    capture[neighborBase + 10u] = penetration;
-                    capture[neighborBase + 11u] = otherDisk.w;
-                    capture[neighborBase + 12u] = otherMaterial.x;
-                    capture[neighborBase + 13u] = otherMaterial.y;
-                    capture[neighborBase + 14u] = otherMaterial.z;
-                    capture[neighborBase + 15u] = otherMaterial.w;
-                    writeVec3(neighborBase + 16u, relativeContactVelocity);
-                    capture[neighborBase + 19u] = float(otherId);
-                    neighborCount++;
-                }
-                else if (centerDistance <= contactDistance + CELL_SIZE)
-                {
-                    atomicAdd(metadata[1], 1u);
-                    neighborOverflow = true;
+                    if (centerDistance <= contactDistance + 0.05)
+                    {
+                        if (neighborCount < uMaxNeighbors)
+                        {
+                            uint neighborBase = baseIndex + 48u + neighborCount * 20u;
+                            writeVec3(neighborBase + 0u, relativePosition);
+                            capture[neighborBase + 3u] = centerDistance;
+                            writeVec3(neighborBase + 4u, relativeVelocity);
+                            writeVec3(neighborBase + 7u, relativeAngular);
+                            capture[neighborBase + 10u] = penetration;
+                            capture[neighborBase + 11u] = otherDisk.w;
+                            capture[neighborBase + 12u] = otherMaterial.x;
+                            capture[neighborBase + 13u] = otherMaterial.y;
+                            capture[neighborBase + 14u] = otherMaterial.z;
+                            capture[neighborBase + 15u] = otherMaterial.w;
+                            writeVec3(neighborBase + 16u, relativeContactVelocity);
+                            capture[neighborBase + 19u] = float(otherId);
+                            neighborCount++;
+                        }
+                        else
+                        {
+                            atomicAdd(metadata[1], 1u);
+                            neighborOverflow = true;
+                        }
+                    }
                 }
             }
             other = links[other];

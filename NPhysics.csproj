@@ -12,4 +12,9 @@
     <EmbeddedResource Include="Shaders\Dataset\*.glsl" />
     <EmbeddedResource Include="Shaders\Neural\*.glsl" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="TrainerApp\**\*.cs" />
+    <Compile Remove="ModelSimulator\**\*.cs" />
+  </ItemGroup>
 </Project>

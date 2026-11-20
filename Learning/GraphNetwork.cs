@@ -13,16 +13,18 @@ internal sealed class GraphNetwork
     private readonly LinearLayer[] _updateLayers;
     private readonly LinearLayer _decoder;
     private readonly float[][] _nodeStatesBefore = new float[2][];
-    private readonly float[][] _aggregatedBefore = new float[2][];
     private readonly float[][] _updateInputs = new float[2][];
+    private readonly float[][] _updatePreActivations = new float[2][];
+    private readonly float[][] _messageInputs = new float[2][];
+    private readonly float[][] _messagePreActivations = new float[2][];
+    private readonly float[][] _edgePreActivations = new float[2][];
+    private readonly float[][] _edgeStates = new float[2][];
+    private float[] _nodeEncoderPreActivations = [];
+    private float[] _nodeInputCache = [];
+    private float[] _edgeInputCache = [];
     private int[] _edgeCountsCache = [];
     private int[] _edgeTargetsCache = [];
-    private float[] _edgeFlatCache = [];
-    private float[] _nodeInputCache = [];
     private float[] _nodeStatesFinal = [];
-    private readonly float[][][] _messageInputs = new float[2][][];
-    private readonly float[][][] _edgeStates = new float[2][][];
-    private readonly float[][][] _messageStates = new float[2][][];
 
     public GraphNetwork(int seed = 2026)
     {
@@ -44,16 +46,19 @@ internal sealed class GraphNetwork
     public float[] Forward(float[] nodeInput, float[] edgeFlat, int[] edgeCounts, int[] edgeTargets)
     {
         _nodeInputCache = nodeInput;
-        _edgeFlatCache = edgeFlat;
+        _edgeInputCache = edgeFlat;
         _edgeCountsCache = edgeCounts;
         _edgeTargetsCache = edgeTargets;
         var nodeCount = edgeCounts.Length;
         var nodeStates = new float[nodeCount * LatentSize];
+        _nodeEncoderPreActivations = new float[nodeCount * LatentSize];
         for (var node = 0; node < nodeCount; node++)
         {
             var input = new float[NodeInputSize];
             Array.Copy(nodeInput, node * NodeInputSize, input, 0, NodeInputSize);
-            var encoded = Silu(_nodeEncoder.Forward(input));
+            var preActivation = _nodeEncoder.Forward(input);
+            Array.Copy(preActivation, 0, _nodeEncoderPreActivations, node * LatentSize, LatentSize);
+            var encoded = Silu(preActivation);
             Array.Copy(encoded, 0, nodeStates, node * LatentSize, LatentSize);
         }
 
@@ -62,6 +67,10 @@ internal sealed class GraphNetwork
             _nodeStatesBefore[iteration] = (float[])nodeStates.Clone();
             var aggregated = new float[nodeCount * LatentSize];
             var edgeOffset = 0;
+            _edgePreActivations[iteration] = new float[edgeTargets.Length * LatentSize];
+            _edgeStates[iteration] = new float[edgeTargets.Length * LatentSize];
+            _messageInputs[iteration] = new float[edgeTargets.Length * LatentSize * 3];
+            _messagePreActivations[iteration] = new float[edgeTargets.Length * LatentSize];
             for (var source = 0; source < nodeCount; source++)
             {
                 var edgeCount = edgeCounts[source];
@@ -70,12 +79,18 @@ internal sealed class GraphNetwork
                     var target = edgeTargets[edgeOffset];
                     var edgeInput = new float[EdgeInputSize];
                     Array.Copy(edgeFlat, edgeOffset * EdgeInputSize, edgeInput, 0, EdgeInputSize);
-                    var edgeState = Silu(_edgeEncoder.Forward(edgeInput));
+                    var edgePreActivation = _edgeEncoder.Forward(edgeInput);
+                    Array.Copy(edgePreActivation, 0, _edgePreActivations[iteration], edgeOffset * LatentSize, LatentSize);
+                    var edgeState = Silu(edgePreActivation);
+                    Array.Copy(edgeState, 0, _edgeStates[iteration], edgeOffset * LatentSize, LatentSize);
                     var messageInput = Concatenate(
                         Slice(nodeStates, source),
                         Slice(nodeStates, target),
                         edgeState);
-                    var message = Silu(_messageLayers[iteration].Forward(messageInput));
+                    Array.Copy(messageInput, 0, _messageInputs[iteration], edgeOffset * LatentSize * 3, LatentSize * 3);
+                    var messagePreActivation = _messageLayers[iteration].Forward(messageInput);
+                    Array.Copy(messagePreActivation, 0, _messagePreActivations[iteration], edgeOffset * LatentSize, LatentSize);
+                    var message = Silu(messagePreActivation);
                     var aggregateOffset = source * LatentSize;
                     var scale = edgeCount > 0 ? 1f / MathF.Sqrt(edgeCount) : 0f;
                     for (var latent = 0; latent < LatentSize; latent++)
@@ -85,8 +100,8 @@ internal sealed class GraphNetwork
                     edgeOffset++;
                 }
             }
-            _aggregatedBefore[iteration] = (float[])aggregated.Clone();
             _updateInputs[iteration] = new float[nodeCount * LatentSize * 2];
+            _updatePreActivations[iteration] = new float[nodeCount * LatentSize];
 
             for (var node = 0; node < nodeCount; node++)
             {
@@ -94,7 +109,9 @@ internal sealed class GraphNetwork
                     Slice(nodeStates, node),
                     Slice(aggregated, node));
                 Array.Copy(updateInput, 0, _updateInputs[iteration], node * 128, 128);
-                var update = Silu(_updateLayers[iteration].Forward(updateInput));
+                var updatePreActivation = _updateLayers[iteration].Forward(updateInput);
+                Array.Copy(updatePreActivation, 0, _updatePreActivations[iteration], node * LatentSize, LatentSize);
+                var update = Silu(updatePreActivation);
                 var offset = node * LatentSize;
                 for (var latent = 0; latent < LatentSize; latent++)
                 {
@@ -119,8 +136,14 @@ internal sealed class GraphNetwork
         return _decoder.Forward(encoded);
     }
 
-    public void BackwardDecoder(float[] outputGradient, int nodeCount)
+    public void Backward(float[] outputGradient)
     {
+        var nodeCount = _edgeCountsCache.Length;
+        if (outputGradient.Length != nodeCount * OutputSize)
+        {
+            throw new ArgumentException("Gradiente de saida com dimensao invalida.");
+        }
+        var latentGradient = new float[nodeCount * LatentSize];
         for (var node = 0; node < nodeCount; node++)
         {
             var gradient = new float[OutputSize];
@@ -131,7 +154,108 @@ internal sealed class GraphNetwork
                 0,
                 OutputSize);
             var nodeState = Slice(_nodeStatesFinal, node);
-            _decoder.Backward(nodeState, gradient);
+            var inputGradient = _decoder.Backward(nodeState, gradient);
+            Array.Copy(inputGradient, 0, latentGradient, node * LatentSize, LatentSize);
+        }
+
+        for (var iteration = 1; iteration >= 0; iteration--)
+        {
+            var previousGradient = new float[nodeCount * LatentSize];
+            var aggregateGradient = new float[nodeCount * LatentSize];
+            for (var node = 0; node < nodeCount; node++)
+            {
+                var preActivationGradient = new float[LatentSize];
+                for (var latent = 0; latent < LatentSize; latent++)
+                {
+                    var offset = node * LatentSize + latent;
+                    preActivationGradient[latent] = latentGradient[offset]
+                        * SiluDerivative(_updatePreActivations[iteration][offset]);
+                }
+
+                var updateInput = new float[LatentSize * 2];
+                Array.Copy(_updateInputs[iteration], node * LatentSize * 2, updateInput, 0, updateInput.Length);
+                var updateInputGradient = _updateLayers[iteration].Backward(updateInput, preActivationGradient);
+                Array.Copy(updateInputGradient, 0, previousGradient, node * LatentSize, LatentSize);
+                Array.Copy(
+                    updateInputGradient,
+                    LatentSize,
+                    aggregateGradient,
+                    node * LatentSize,
+                    LatentSize);
+            }
+
+            var edgeOffset = 0;
+            for (var source = 0; source < nodeCount; source++)
+            {
+                var edgeCount = _edgeCountsCache[source];
+                var scale = edgeCount > 0 ? 1f / MathF.Sqrt(edgeCount) : 0f;
+                for (var edge = 0; edge < edgeCount; edge++, edgeOffset++)
+                {
+                    var target = _edgeTargetsCache[edgeOffset];
+                    var messageGradient = new float[LatentSize];
+                    for (var latent = 0; latent < LatentSize; latent++)
+                    {
+                        var offset = edgeOffset * LatentSize + latent;
+                        messageGradient[latent] = aggregateGradient[source * LatentSize + latent]
+                            * scale
+                            * SiluDerivative(_messagePreActivations[iteration][offset]);
+                    }
+
+                    var messageInput = new float[LatentSize * 3];
+                    Array.Copy(_messageInputs[iteration], edgeOffset * LatentSize * 3, messageInput, 0, messageInput.Length);
+                    var messageInputGradient = _messageLayers[iteration].Backward(messageInput, messageGradient);
+                    for (var latent = 0; latent < LatentSize; latent++)
+                    {
+                        previousGradient[source * LatentSize + latent] += messageInputGradient[latent];
+                        previousGradient[target * LatentSize + latent] += messageInputGradient[LatentSize + latent];
+                    }
+
+                    var edgeGradient = new float[LatentSize];
+                    for (var latent = 0; latent < LatentSize; latent++)
+                    {
+                        var offset = edgeOffset * LatentSize + latent;
+                        edgeGradient[latent] = messageInputGradient[2 * LatentSize + latent]
+                            * SiluDerivative(_edgePreActivations[iteration][offset]);
+                    }
+                    var edgeInput = new float[EdgeInputSize];
+                    Array.Copy(_edgeInputCache, edgeOffset * EdgeInputSize, edgeInput, 0, EdgeInputSize);
+                    _edgeEncoder.Backward(edgeInput, edgeGradient);
+                }
+            }
+            latentGradient = previousGradient;
+        }
+
+        for (var node = 0; node < nodeCount; node++)
+        {
+            var nodeGradient = new float[LatentSize];
+            for (var latent = 0; latent < LatentSize; latent++)
+            {
+                var offset = node * LatentSize + latent;
+                nodeGradient[latent] = latentGradient[offset]
+                    * SiluDerivative(_nodeEncoderPreActivations[offset]);
+            }
+            var nodeInput = new float[NodeInputSize];
+            Array.Copy(_nodeInputCache, node * NodeInputSize, nodeInput, 0, NodeInputSize);
+            _nodeEncoder.Backward(nodeInput, nodeGradient);
+        }
+    }
+
+    public void LoadParameters(ModelSerializer.ModelParameters model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        var savedLayers = model.Layers.ToDictionary(layer => layer.Name, StringComparer.Ordinal);
+        foreach (var (name, layer) in NamedLayers)
+        {
+            if (!savedLayers.TryGetValue(name, out var saved)
+                || saved.InputSize != layer.InputSize
+                || saved.OutputSize != layer.OutputSize
+                || saved.Weights.Length != layer.Weight.Length
+                || saved.Bias.Length != layer.Bias.Length)
+            {
+                throw new InvalidDataException($"Pesos ausentes ou incompativeis para {name}.");
+            }
+            Array.Copy(saved.Weights, layer.Weight, layer.Weight.Length);
+            Array.Copy(saved.Bias, layer.Bias, layer.Bias.Length);
         }
     }
 
@@ -162,6 +286,12 @@ internal sealed class GraphNetwork
             result[i] = values[i] / (1f + MathF.Exp(-values[i]));
         }
         return result;
+    }
+
+    private static float SiluDerivative(float value)
+    {
+        var sigmoid = 1f / (1f + MathF.Exp(-value));
+        return sigmoid * (1f + value * (1f - sigmoid));
     }
 
     public IEnumerable<LinearLayer> Layers => NamedLayers.Select(layer => layer.Layer);

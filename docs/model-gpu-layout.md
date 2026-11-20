@@ -9,11 +9,9 @@ The layer order in the packed SSBO is fixed:
 | Layer | Input | Output |
 |---|---:|---:|
 | `node_encoder` | 48 | 64 |
-| `edge_encoder` | 20 | 64 |
-| `message_0` | 192 | 64 |
-| `message_1` | 192 | 64 |
-| `update_0` | 128 | 64 |
-| `update_1` | 128 | 64 |
+| `edge_encoder` (shared) | 20 | 64 |
+| `message_0`, `message_1` | 192 | 64 each |
+| `update_0`, `update_1` | 128 | 64 each |
 | `decoder` | 64 | 9 |
 
 Each layer contributes row-major weights followed immediately by its bias vector. `GpuModelWeights` provides each layer's weight and bias offsets in float elements; shaders index those offsets in one `float[]` SSBO. A linear layer computes:
@@ -27,12 +25,12 @@ The uploader checks `GL_MAX_SHADER_STORAGE_BLOCK_SIZE` before allocating one SSB
 
 ## Validation command
 
-`dotnet run -- --gpu-model-check <model.nphysmodel>` creates a temporary OpenGL 4.3 context, loads and uploads the model, runs a nonzero-input `node_encoder` matrix-vector probe, and compares its result against the C# calculation (before SiLU). This validates model decoding, packed offsets, SSBO upload, shader indexing, and CPU/GPU numerical agreement for one linear operation only. It does not yet execute the graph message-passing pipeline or change the physics backend.
+`dotnet run -- --gpu-model-check <model.nphysmodel>` creates a temporary OpenGL 4.3 context, loads and uploads the model, runs a three-node graph (including a zero-degree node) through all inference stages, and compares outputs against `GraphNetwork.Forward`. The probe checks model decoding, packed offsets, SSBO upload, CSR edge offsets, activation, aggregation, barriers and CPU/GPU numerical agreement. The runtime-facing `DispatchFromBuffers` leaves the output on GPU; the probe's convenience `Forward` path intentionally performs a synchronous readback for comparison. No physics backend is changed yet.
 
 ## Current limitations
 
 - The current `--train` command is an experimental one-pass loader/training path, not a production training loop.
-- Backpropagation currently updates the decoder only; encoder/message/update layer gradients are not propagated.
+- Manual backpropagation now propagates through decoder, both update/message passes, the shared edge encoder, and node encoder. There are no mini-batches, session-level train/validation/test splits, or training checkpoints yet.
 - Normalization arrays are stored and validated, but the current CLI writes zero means and unit standard deviations rather than computing them from the dataset.
 - There is no GPU forward implementation for SiLU, edge encoding, aggregation, the two message/update steps, or decoding.
 - No neural backend is connected to `GpuPhysics`; the existing teacher shader remains the only simulation backend.

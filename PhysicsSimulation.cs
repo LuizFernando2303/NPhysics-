@@ -15,7 +15,11 @@ internal sealed class PhysicsSimulation : GameWindow
     private readonly ProceduralTrack _track = new();
     private readonly GpuPhysics _physics = new();
     private readonly Random _random = new(SimulationSettings.Seed);
+    private readonly string? _neuralModelPath;
+    private readonly int? _maximumPhysicsSteps;
+    private int _totalPhysicsSteps;
     private SceneRenderer? _renderer;
+    private SimulationHud? _hud;
     private SimulationTrace? _trace;
     private SimulationFrameCapture? _frameCapture;
     private float _cameraX;
@@ -31,15 +35,23 @@ internal sealed class PhysicsSimulation : GameWindow
     private double _physicsSubmissionMillisecondsInWindow;
     private double _renderSubmissionMillisecondsInWindow;
 
-    public PhysicsSimulation()
+    public PhysicsSimulation(string? neuralModelPath = null, int? maximumPhysicsSteps = null)
         : base(GameWindowSettings.Default, new NativeWindowSettings
         {
             ClientSize = new Vector2i(1280, 720),
-            Title = $"NPhysics - {SimulationSettings.DiskCount} esferas - rampa {SimulationSettings.InclinationDegrees:0} graus",
+            Title = neuralModelPath is null
+                ? $"NPhysics - {SimulationSettings.DiskCount} esferas - rampa {SimulationSettings.InclinationDegrees:0} graus"
+                : $"NPhysics Neural experimental - {SimulationSettings.DiskCount} esferas",
             APIVersion = new Version(4, 3),
             Profile = ContextProfile.Core,
         })
     {
+        _neuralModelPath = neuralModelPath;
+        if (maximumPhysicsSteps <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumPhysicsSteps));
+        }
+        _maximumPhysicsSteps = maximumPhysicsSteps;
     }
 
     protected override void OnLoad()
@@ -51,15 +63,23 @@ internal sealed class PhysicsSimulation : GameWindow
         GL.CullFace(TriangleFace.Back);
         GL.Viewport(0, 0, ClientSize.X, ClientSize.Y);
 
-        _physics.Initialize(_track, CreateRandomSource());
+        _physics.Initialize(_track, CreateRandomSource(), _neuralModelPath);
         _renderer = new SceneRenderer(_track, _physics);
         _renderer.Initialize();
+        _hud = new SimulationHud();
         _trace = new SimulationTrace(
             GL.GetString(StringName.Vendor) ?? "unknown",
             GL.GetString(StringName.Renderer) ?? "unknown",
-            GL.GetString(StringName.Version) ?? "unknown");
+            GL.GetString(StringName.Version) ?? "unknown",
+            _physics.DetailedCountersAvailable,
+            _physics.IsModelBackend ? "neural-experimental" : "teacher",
+            _neuralModelPath);
         _frameCapture = new SimulationFrameCapture(_trace.FilePath);
         Console.WriteLine($"Rastreamento da simulacao: {_trace.FilePath}");
+        if (_physics.IsModelBackend)
+        {
+            Console.WriteLine("Backend neural ativo; dados do dataset Teacher desativados nesta sessao.");
+        }
         Console.WriteLine("Capturas de imagem: automaticas no inicio e sob demanda com F4.");
         _cameraX = -8f;
     }
@@ -74,45 +94,24 @@ internal sealed class PhysicsSimulation : GameWindow
     {
         base.OnUpdateFrame(e);
         ReadTelemetry();
-        _frameCaptureTimeSeconds += Math.Min(e.Time, 1.0 / 20.0);
-        if (!IsFocused)
+        var mouseAction = _hud?.Update(
+            MousePosition,
+            MouseState.IsButtonPressed(MouseButton.Button1),
+            ClientSize.X,
+            _paused,
+            _trace?.IsEnabled == true,
+            _physics.IsDatasetCaptureEnabled,
+            _frameCapture?.CanCapture == true,
+            IsFocused,
+            datasetCaptureAvailable: !_physics.IsModelBackend);
+        if (IsFocused)
         {
-            return;
-        }
-
-        if (KeyboardState.IsKeyPressed(Keys.Space))
-        {
-            _paused = !_paused;
-            _trace?.WriteEvent(_paused ? "paused" : "resumed", _cameraX, _paused);
-        }
-
-        if (KeyboardState.IsKeyPressed(Keys.R))
-        {
-            ResetSimulation();
-            _trace?.WriteEvent("reset", _cameraX, _paused);
-        }
-
-        if (KeyboardState.IsKeyPressed(Keys.F3) && _trace is not null)
-        {
-            _trace.SetEnabled(!_trace.IsEnabled);
-            _physics.SetDiagnosticsEnabled(_trace.IsEnabled);
-            Title = $"NPhysics | Rastreamento {(_trace.IsEnabled ? "ativo" : "pausado")}";
-            Console.WriteLine($"Rastreamento {(_trace.IsEnabled ? "ativado" : "pausado")}: {_trace.FilePath}");
-        }
-
-        if (KeyboardState.IsKeyPressed(Keys.F4))
-        {
-            _manualFrameCaptureRequested = true;
-        }
-
-        if (KeyboardState.IsKeyPressed(Keys.F5))
-        {
-            var enabled = !_physics.IsDatasetCaptureEnabled;
-            _physics.SetDatasetCaptureEnabled(enabled);
-            Title = $"NPhysics | Captura dataset {(enabled ? "ativa" : "pausada")}";
-            Console.WriteLine(
-                $"Captura dataset {(enabled ? "ativada" : "pausada")}; "
-                + $"amostras={_physics.DatasetSampleCount:N0}");
+            _frameCaptureTimeSeconds += Math.Min(e.Time, 1.0 / 20.0);
+            HandleKeyboardControls();
+            if (mouseAction is { } action)
+            {
+                HandleControlAction(action);
+            }
         }
 
         if (_paused)
@@ -130,6 +129,12 @@ internal sealed class PhysicsSimulation : GameWindow
             _accumulator -= FixedStep;
             _simulationTimeSeconds += FixedStep;
             stepCount++;
+            _totalPhysicsSteps++;
+            if (_maximumPhysicsSteps is { } maximumSteps && _totalPhysicsSteps >= maximumSteps)
+            {
+                Close();
+                break;
+            }
         }
 
         if (stepCount > 0)
@@ -162,6 +167,15 @@ internal sealed class PhysicsSimulation : GameWindow
 
         var renderStart = Stopwatch.GetTimestamp();
         _renderer?.Render(view * projection, _cameraX, cameraRight, cameraUp);
+        _hud?.Render(
+            ClientSize.X,
+            ClientSize.Y,
+            MousePosition,
+            _paused,
+            _trace?.IsEnabled == true,
+            _physics.IsDatasetCaptureEnabled,
+            _frameCapture?.CanCapture == true,
+            datasetCaptureAvailable: !_physics.IsModelBackend);
         CaptureFrameIfRequested();
         SwapBuffers();
         _renderSubmissionMillisecondsInWindow += Stopwatch.GetElapsedTime(renderStart).TotalMilliseconds;
@@ -191,6 +205,7 @@ internal sealed class PhysicsSimulation : GameWindow
     protected override void OnUnload()
     {
         _renderer?.Dispose();
+        _hud?.Dispose();
         _physics.Dispose();
         _trace?.Dispose();
         base.OnUnload();
@@ -209,6 +224,132 @@ internal sealed class PhysicsSimulation : GameWindow
     private Random CreateRandomSource()
     {
         return new Random(_random.Next());
+    }
+
+    private void HandleKeyboardControls()
+    {
+        if (KeyboardState.IsKeyPressed(Keys.Space))
+        {
+            HandleControlAction(SimulationControlAction.TogglePause);
+        }
+        if (KeyboardState.IsKeyPressed(Keys.R))
+        {
+            HandleControlAction(SimulationControlAction.Reset);
+        }
+        if (KeyboardState.IsKeyPressed(Keys.F3))
+        {
+            HandleControlAction(SimulationControlAction.ToggleDiagnostics);
+        }
+        if (KeyboardState.IsKeyPressed(Keys.F4))
+        {
+            HandleControlAction(SimulationControlAction.CaptureFrame);
+        }
+        if (KeyboardState.IsKeyPressed(Keys.F5))
+        {
+            HandleControlAction(SimulationControlAction.ToggleDatasetCapture);
+        }
+    }
+
+    private void HandleControlAction(SimulationControlAction action)
+    {
+        switch (action)
+        {
+            case SimulationControlAction.TogglePause:
+                _paused = !_paused;
+                _trace?.WriteEvent(_paused ? "paused" : "resumed", _cameraX, _paused);
+                break;
+            case SimulationControlAction.Reset:
+                ResetSimulation();
+                _trace?.WriteEvent("reset", _cameraX, _paused);
+                break;
+            case SimulationControlAction.ToggleDiagnostics:
+                if (_trace is null)
+                {
+                    return;
+                }
+                _trace.SetEnabled(!_trace.IsEnabled);
+                _physics.SetDiagnosticsEnabled(_trace.IsEnabled);
+                Title = $"NPhysics | Rastreamento {(_trace.IsEnabled ? "ativo" : "pausado")}";
+                Console.WriteLine(
+                    $"Rastreamento {(_trace.IsEnabled ? "ativado" : "pausado")}: {_trace.FilePath}");
+                break;
+            case SimulationControlAction.CaptureFrame:
+                if (_frameCapture?.CanCapture == true)
+                {
+                    _manualFrameCaptureRequested = true;
+                }
+                break;
+            case SimulationControlAction.ToggleDatasetCapture:
+                var enabled = !_physics.IsDatasetCaptureEnabled;
+                try
+                {
+                    _physics.SetDatasetCaptureEnabled(enabled);
+                }
+                catch (Exception exception) when (
+                    exception is NotSupportedException
+                        or OutOfMemoryException
+                        or InvalidOperationException
+                        or OverflowException)
+                {
+                    Console.Error.WriteLine($"Nao foi possivel ativar a captura do dataset: {exception.Message}");
+                    return;
+                }
+                Title = $"NPhysics | Captura dataset {(enabled ? "ativa" : "pausada")}";
+                Console.WriteLine(
+                    $"Captura dataset {(enabled ? "ativada" : "pausada")}; "
+                    + $"amostras={_physics.DatasetSampleCount:N0}");
+                break;
+            case SimulationControlAction.OpenReport:
+                OpenLatestReport();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(action), action, "Acao de interface desconhecida.");
+        }
+    }
+
+    private static void OpenLatestReport()
+    {
+        var outputDirectory = DatasetCaptureSettings.DefaultOutputDirectory;
+        if (!Directory.Exists(outputDirectory))
+        {
+            Console.WriteLine($"Pasta de datasets ainda nao existe: {outputDirectory}");
+            return;
+        }
+
+        try
+        {
+            var report = Directory.EnumerateFiles(outputDirectory, "*.report.html")
+                .Concat(Directory.EnumerateFiles(outputDirectory, "*.training.html"))
+                .Select(path => new FileInfo(path))
+                .OrderByDescending(file => file.LastWriteTimeUtc)
+                .FirstOrDefault();
+            if (report is null)
+            {
+                Console.WriteLine(
+                    $"Nenhum relatorio encontrado em {outputDirectory}. "
+                    + "Gere um com --dataset-report ou treine um dataset.");
+                return;
+            }
+
+            using var process = Process.Start(new ProcessStartInfo(report.FullName)
+            {
+                UseShellExecute = true,
+            });
+            if (process is null)
+            {
+                Console.Error.WriteLine($"Nao foi possivel abrir o relatorio {report.FullName}.");
+                return;
+            }
+            Console.WriteLine($"Relatorio aberto: {report.FullName}");
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or InvalidOperationException
+                or System.ComponentModel.Win32Exception)
+        {
+            Console.Error.WriteLine($"Falha ao abrir relatorio: {exception.Message}");
+        }
     }
 
     private void ReadTelemetry()

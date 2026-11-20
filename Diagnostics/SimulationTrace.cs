@@ -11,7 +11,13 @@ internal sealed class SimulationTrace : IDisposable
 
     private readonly StreamWriter _writer;
 
-    public SimulationTrace(string graphicsVendor, string graphicsRenderer, string graphicsVersion)
+    public SimulationTrace(
+        string graphicsVendor,
+        string graphicsRenderer,
+        string graphicsVersion,
+        bool detailedGpuCountersAvailable,
+        string solverBackend = "teacher",
+        string? modelPath = null)
     {
         var directory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -35,6 +41,9 @@ internal sealed class SimulationTrace : IDisposable
             graphicsVendor,
             graphicsRenderer,
             graphicsVersion,
+            solverBackend,
+            modelPath,
+            detailedGpuCountersAvailable,
             diskCount = SimulationSettings.DiskCount,
             fixedStepSeconds = SimulationSettings.FixedStep,
             gravityMetersPerSecondSquared = SimulationSettings.Gravity,

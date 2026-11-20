@@ -23,11 +23,8 @@ internal sealed class GraphTrainer
             var targetNode = new float[GraphNetwork.OutputSize];
             Array.Copy(prediction, node * GraphNetwork.OutputSize, predictedNode, 0, GraphNetwork.OutputSize);
             Array.Copy(target, node * GraphNetwork.OutputSize, targetNode, 0, GraphNetwork.OutputSize);
-            loss += HuberLoss.ForwardBackward(
-                predictedNode,
-                targetNode,
-                predictedNode,
-                0.1f);
+            var unusedGradient = new float[GraphNetwork.OutputSize];
+            loss += HuberLoss.ForwardBackward(predictedNode, targetNode, unusedGradient, 0.1f);
         }
 
         foreach (var layer in _network.Layers)
@@ -43,6 +40,11 @@ internal sealed class GraphTrainer
             Array.Copy(prediction, node * GraphNetwork.OutputSize, predictedNode, 0, GraphNetwork.OutputSize);
             var nodeGradient = new float[GraphNetwork.OutputSize];
             HuberLoss.ForwardBackward(predictedNode, targetNode, nodeGradient, 0.1f);
+            var gradientScale = 1f / (nodeCount * GraphNetwork.OutputSize);
+            for (var i = 0; i < nodeGradient.Length; i++)
+            {
+                nodeGradient[i] *= gradientScale;
+            }
             Array.Copy(
                 nodeGradient,
                 0,
@@ -50,7 +52,7 @@ internal sealed class GraphTrainer
                 node * GraphNetwork.OutputSize,
                 GraphNetwork.OutputSize);
         }
-        _network.BackwardDecoder(gradient, nodeCount);
+        _network.Backward(gradient);
         _optimizer.Step(_network.Layers);
         return loss / Math.Max(1, nodeCount);
     }

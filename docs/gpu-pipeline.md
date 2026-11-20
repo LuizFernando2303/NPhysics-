@@ -142,7 +142,9 @@ O layout atual reserva 384 floats (1.536 bytes) por esfera:
 | 375–380 | Contagem de vizinhos, overflow, flags de contato e velocidade relativa maxima |
 | 381–383 | Reservado; escrito como zero |
 
-Cada vizinho armazena posicao relativa XYZ/distancia, velocidade relativa XYZ, velocidade angular relativa XYZ, penetracao, raio, massa, coeficientes de atrito/restituicao do vizinho, velocidade de contato relativa XYZ e indice do vizinho local ao bloco. O buffer e zerado por invocacao antes de preencher os vizinhos.
+Cada registro serializado de vizinho armazena 20 floats na ordem: posicao relativa XYZ, distancia centro-centro, velocidade relativa XYZ, velocidade angular relativa XYZ, penetracao, raio, massa, atrito estatico, atrito dinamico, restituicao, velocidade relativa no contato XYZ e indice da esfera vizinha no bloco. O loader transforma o ultimo campo em distancia de contato, derivada como soma dos raios, e preserva o indice separadamente como destino da aresta; assim a rede nao recebe o identificador absoluto da esfera como feature. O buffer e zerado por invocacao antes de preencher os vizinhos. O shader compara as coordenadas da celula real para evitar contar repetidamente a mesma lista hash quando buckets colidem.
+
+O treinador descarta individualmente amostras com overflow; dentro do minibatch tambem remove arestas que apontariam para nos descartados ou fora do minibatch.
 
 O buffer de amostras e acompanhado por 16 contadores uint. A GPU copia os contadores para o fim do bloco de captura e um slot no anel de staging copia ambos juntos, com uma unica fence e numero de sequencia. A leitura testa a fence com timeout zero; sem slot livre a amostra e ignorada para nao bloquear a simulacao. O arquivo fica em `%LOCALAPPDATA%/NPhysics/datasets/`.
 
@@ -150,9 +152,9 @@ O shader de captura e executado no driver OpenGL da aplicacao; `dotnet build` is
 
 ## Pesos do modelo para GPU
 
-O arquivo `.nphysmodel` v2 nomeia e valida dimensoes de todas as camadas. `GpuModelWeights` concatena pesos row-major e biases em um `float[]` SSBO, com offsets em unidades de floats. Antes do upload, compara o tamanho requerido ao limite `GL_MAX_SHADER_STORAGE_BLOCK_SIZE`. O shader de probe usa um produto matriz-vetor; o manifesto e offsets detalhados estao em [model-gpu-layout.md](model-gpu-layout.md).
+O arquivo `.nphysmodel` v2 nomeia e valida dimensoes de todas as camadas. `GpuModelWeights` concatena pesos row-major e biases em um `float[]` SSBO, com offsets em unidades de floats. Antes do upload, compara o tamanho requerido ao limite `GL_MAX_SHADER_STORAGE_BLOCK_SIZE`. `GpuGraphInference` executa encoder, duas passagens message/update e decoder usando SSBOs, com barreiras de armazenamento entre dispatches. O manifesto e offsets detalhados estao em [model-gpu-layout.md](model-gpu-layout.md).
 
-`--gpu-model-check <arquivo>` cria um contexto temporario, carrega o modelo, faz upload e compara a camada `node_encoder` no GLSL com o calculo CPU para entrada nao-zero. Esse teste nao executa SiLU, message passing, decoder, nem a rede completa; tampouco muda o backend fisico.
+`--gpu-model-check <arquivo>` cria um contexto temporario, carrega o modelo, faz upload e compara um grafo com tres nos e graus distintos na GPU com `GraphNetwork.Forward`. A interface `DispatchFromBuffers` deixa o resultado no SSBO `OutputBuffer` sem readback. O executavel `ModelSimulator` ja usa a GNN no passo de movimento; nessa primeira versao, ele monta o grafo na CPU e usa `Forward`, que sincroniza a leitura das correcoes antes de atualizar os buffers de estado. O executavel principal continua no caminho Teacher.
 
 ## Pipeline de culling e desenho
 
@@ -180,7 +182,9 @@ NPhysics.Shaders.CullDisks.comp.glsl
 NPhysics.Shaders.Surface.vert.glsl
 NPhysics.Shaders.Surface.frag.glsl
 NPhysics.Shaders.Dataset.CaptureTraining.comp.glsl
-NPhysics.Shaders.Neural.LinearProbe.comp.glsl
+NPhysics.Shaders.Neural.EncodeNodes.comp.glsl
+NPhysics.Shaders.Neural.MessagePassing.comp.glsl
+NPhysics.Shaders.Neural.DecodePhysics.comp.glsl
 ```
 
 O argumento de `ShaderSource.Load` omite o sufixo `.glsl`. O carregador substitui marcadores como `@GRAVITY@` por constantes formatadas com cultura invariavel. Um marcador esquecido resulta em erro de compilacao GLSL; por isso, revisar o texto final resolvido e o log do driver quando um shader falhar.

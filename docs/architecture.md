@@ -28,7 +28,10 @@ As ferramentas de aprendizado ainda sao independentes do backend fisico ativo:
 
 ```text
 DatasetReader -> DatasetLoader -> GraphNetwork / GraphTrainer -> ModelSerializer (.nphysmodel)
-                                                        └── GpuModelWeights -> LinearProbe.comp.glsl
+                                                        └── GpuModelWeights -> GpuGraphInference
+                                                                                  ├── EncodeNodes
+                                                                                  ├── MessagePassing x2
+                                                                                  └── DecodePhysics
 ```
 
 `PhysicsSimulation` possui os componentes durante a vida da janela. A janela cria e descarta os recursos OpenGL; por isso, os objetos que chamam `GL.*` devem ser inicializados e descartados com um contexto OpenGL valido na thread da janela.
@@ -81,7 +84,7 @@ O dispatch de captura ocorre depois de `Simulate` e antes da alternancia de `_cu
 
 `DatasetGenerator` executa `CaptureTraining.comp.glsl` e grava blocos binarios `.nphysdata`. `DatasetReader` verifica a assinatura, os tamanhos/contagens dos blocos e valores finitos, entregando blocos incrementalmente; a validacao atual ainda nao rejeita todas as versoes de schema no cabecalho. `Learning` contem o forward experimental da GNN, o treinador em CPU e o serializador do modelo. Esse caminho nao e chamado pelo solver Teacher.
 
-`GpuModelWeights` valida o `.nphysmodel` v2 e empacota as camadas para um SSBO. `GpuModelProbeWindow` carrega o modelo em contexto OpenGL temporario e verifica uma camada linear. Ainda nao existe inferencia GNN completa na GPU, nem selecao Teacher/Neural no runtime.
+`GpuModelWeights` valida o `.nphysmodel` v2 e empacota as camadas em um SSBO. `GpuGraphInference` executa o encoder, duas passagens message/update e decoder. `DispatchFromBuffers` permite consumir buffers OpenGL fornecidos pelo chamador e deixa os resultados em `OutputBuffer`; a API de teste `Forward` faz upload de arrays e readback sincrono. `GpuModelProbeWindow` compara um grafo sintetico na GPU com `GraphNetwork.Forward`. A inferencia GNN ainda nao esta ligada ao estado fisico nem existe selecao Teacher/Neural no runtime.
 
 O estado corrente e identificado por `_currentState`, que seleciona os buffers de posicao, velocidade linear e estado angular. O estado angular contem quaternion e velocidade angular em dois `vec4` por esfera. A cada passo os tres conjuntos alternam entre os buffers de entrada e saida.
 
@@ -107,6 +110,8 @@ O renderizador nao copia as posicoes dos discos para CPU.
 
 `GpuDiagnostics` possui o SSBO de contadores, os buffers de readback e as queries de tempo. O compute shader atualiza contadores agregados; em intervalos de aproximadamente um segundo, o codigo copia o buffer para um slot livre e associa uma fence. A thread da janela so le os valores depois que a fence sinaliza sem espera; se todos os slots estiverem ocupados, pula a captura daquele intervalo em vez de bloquear a GPU.
 
+Como os contadores usam atomics globais que podem serializar workloads grandes, eles so habilitados ate 4.096 esferas. Acima disso, as queries de tempo GPU e o trace continuam ativos, mas os campos de contagem nao estao disponiveis; a sessao registra essa condicao no cabecalho.
+
 `SimulationTrace` escreve cabecalho, eventos de ativacao e amostras em JSONL dentro de `%LOCALAPPDATA%/NPhysics/traces`. A serializacao e feita pela thread da janela. `F3` desativa ou reativa a instrumentacao. O caminho completo do arquivo e informado no console.
 
 ### `GlProgram` e `ShaderSource`
@@ -131,11 +136,11 @@ Os fontes ficam em `Shaders/` e seus subdiretorios `Dataset/` e `Neural/`; sao i
 
 ### Update
 
-`OnUpdateFrame` ignora input/update quando a janela nao esta focada. Espaco alterna pausa. `R` reinicializa a simulacao. Se estiver em movimento:
+`OnUpdateFrame` ignora apenas input quando a janela nao esta focada; o passo de fisica e a telemetria continuam executando em segundo plano. A pausa e exclusivamente controlada pelo usuario. Espaco alterna pausa. `R` reinicializa a simulacao. Se estiver em movimento:
 
 1. limita o delta do quadro a 1/20 s;
 2. soma o delta ao acumulador;
-3. executa `GpuPhysics.Step(1/120)` para cada passo completo;
+3. executa `GpuPhysics.Step(1/120)` para cada passo completo; o executavel principal usa o solver Teacher, enquanto `ModelSimulator` monta o grafo de vizinhanca, roda a GNN e aplica as correcoes previstas;
 4. move a camera;
 5. atualiza os obstaculos se a camera cruzou um limite de segmento.
 

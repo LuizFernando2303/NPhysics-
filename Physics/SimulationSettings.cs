@@ -2,10 +2,10 @@ namespace NPhysics;
 
 internal static class SimulationSettings
 {
-    public const int DefaultDiskCount = 1_000_000;
+    public const int DefaultDiskCount = 100000;
     public static int DiskCount { get; set; } = DefaultDiskCount;
     public static int Seed { get; set; } = 2026;
-    public static bool DatasetCaptureEnabled { get; set; }
+    public static bool DatasetCaptureEnabled { get; set; } = true;
     public const int WorkGroupSize = 128;
     public const int GridBucketCount = 1 << 22;
     public const float GridCellSize = 0.2f;

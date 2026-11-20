@@ -29,6 +29,8 @@ internal sealed class AsyncGpuReadback : IDisposable
 
     public bool Schedule(int sourceBuffer, int byteCount, uint sequence)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sourceBuffer);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(byteCount);
         var slot = -1;
         for (var attempt = 0; attempt < _buffers.Length; attempt++)
         {
@@ -55,7 +57,12 @@ internal sealed class AsyncGpuReadback : IDisposable
             0,
             byteCount);
         GL.Flush();
-        _fences[slot] = GL.FenceSync(SyncCondition.SyncGpuCommandsComplete, 0);
+        var fence = GL.FenceSync(SyncCondition.SyncGpuCommandsComplete, 0);
+        if (fence == 0)
+        {
+            throw new InvalidOperationException("Nao foi possivel criar a fence do readback GPU.");
+        }
+        _fences[slot] = fence;
         _byteCounts[slot] = byteCount;
         _sequences[slot] = sequence;
         return true;
@@ -75,6 +82,17 @@ internal sealed class AsyncGpuReadback : IDisposable
             {
                 continue;
             }
+            if (status == WaitSyncStatus.WaitFailed)
+            {
+                GL.DeleteSync(_fences[slot]);
+                _fences[slot] = 0;
+                _byteCounts[slot] = 0;
+                throw new InvalidOperationException("Falha ao consultar a fence do readback GPU.");
+            }
+            if (status is not (WaitSyncStatus.AlreadySignaled or WaitSyncStatus.ConditionSatisfied))
+            {
+                continue;
+            }
 
             GL.DeleteSync(_fences[slot]);
             _fences[slot] = 0;
@@ -91,7 +109,11 @@ internal sealed class AsyncGpuReadback : IDisposable
                 throw new InvalidOperationException("Nao foi possivel mapear o staging buffer.");
             }
             Marshal.Copy(ptr, values, 0, values.Length);
-            GL.UnmapBuffer(BufferTarget.ShaderStorageBuffer);
+            if (!GL.UnmapBuffer(BufferTarget.ShaderStorageBuffer))
+            {
+                _byteCounts[slot] = 0;
+                throw new InvalidDataException("Staging buffer de readback foi corrompido durante o mapeamento.");
+            }
             _byteCounts[slot] = 0;
             sequence = _sequences[slot];
             return true;
