@@ -164,15 +164,19 @@ internal sealed class GraphNetwork
         return result;
     }
 
-    public IEnumerable<LinearLayer> Layers
+    public IEnumerable<LinearLayer> Layers => NamedLayers.Select(layer => layer.Layer);
+
+    public IEnumerable<(string Name, LinearLayer Layer)> NamedLayers
     {
         get
         {
-            yield return _nodeEncoder;
-            yield return _edgeEncoder;
-            foreach (var layer in _messageLayers) yield return layer;
-            foreach (var layer in _updateLayers) yield return layer;
-            yield return _decoder;
+            yield return ("node_encoder", _nodeEncoder);
+            yield return ("edge_encoder", _edgeEncoder);
+            yield return ("message_0", _messageLayers[0]);
+            yield return ("message_1", _messageLayers[1]);
+            yield return ("update_0", _updateLayers[0]);
+            yield return ("update_1", _updateLayers[1]);
+            yield return ("decoder", _decoder);
         }
     }
 }

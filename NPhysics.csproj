@@ -10,5 +10,6 @@
     <PackageReference Include="OpenTK" Version="4.9.4" />
     <EmbeddedResource Include="Shaders\*.glsl" />
     <EmbeddedResource Include="Shaders\Dataset\*.glsl" />
+    <EmbeddedResource Include="Shaders\Neural\*.glsl" />
   </ItemGroup>
 </Project>

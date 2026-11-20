@@ -79,6 +79,12 @@ internal static class Program
                         $"Dataset valido: blocos={blockTotal:N0}, amostras={sampleTotal:N0}, "
                         + $"overflows={overflowTotal:N0}");
                     return;
+                case "--gpu-model-check":
+                    using (var probe = new GpuModelProbeWindow(value))
+                    {
+                        probe.Run();
+                    }
+                    return;
             }
         }
         using var simulation = new PhysicsSimulation();

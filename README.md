@@ -103,6 +103,14 @@ dotnet run -- --train "C:\Users\Anna Beatriz\AppData\Local\NPhysics\datasets\dat
 
 O modelo correspondente sera gravado com extensao `.nphysmodel`. A implementacao atual usa uma GNN Encode-Process-Decode em C#, Huber Loss separavel por componente, Adam e serializacao propria. O backprop do decoder esta implementado; o backprop completo do encoder e das duas passagens de mensagens continua pendente antes do treinamento de producao.
 
+Verifique carregamento/upload dos pesos e a equivalencia de uma camada linear na GPU:
+
+```powershell
+dotnet run -- --gpu-model-check "%LOCALAPPDATA%\NPhysics\datasets\dataset.nphysmodel"
+```
+
+O formato v2 e a organizacao dos pesos no SSBO estao documentados em [docs/model-gpu-layout.md](docs/model-gpu-layout.md). Este probe nao ativa a inferencia GNN nem altera o backend fisico.
+
 ## Arquitetura
 
 O codigo e separado por responsabilidade:
