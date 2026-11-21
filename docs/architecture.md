@@ -20,10 +20,10 @@ O fluxo de trabalho fica separado em tres operacoes:
 ```text
 NPhysics.DataGenerator -> .nphysdata
 .nphysdata -> NPhysics.Trainer -> .nphysmodel
-.nphysmodel -> NPhysics.ModelSimulator -> simulacao com modelo
+.nphysmodel -> NPhysics.ModelSimulator -> painel de dados / cena 3D opcional
 ```
 
-A geracao de dados inicia a simulacao fisica com a captura habilitada. O treinamento le o formato de dataset atraves da biblioteca e grava o modelo; o simulador do modelo carrega esse formato atraves da mesma biblioteca.
+A geracao de dados inicia a simulacao fisica com a captura habilitada. O treinamento le o formato de dataset atraves da biblioteca e grava o modelo; o simulador do modelo carrega esse formato atraves da mesma biblioteca. Os executaveis de simulacao iniciam no painel de dados sem desenhar a cena fisica. A cena 3D e uma apresentacao opcional, ativada com `--view scene` ou `F6`.
 
 As ferramentas de aprendizado ainda sao independentes do backend fisico ativo:
 
@@ -50,15 +50,28 @@ Os comandos de execucao estao documentados no README.
 Deriva de `GameWindow` do OpenTK e e responsavel pelo ciclo de vida interativo:
 
 - cria uma instancia de `ProceduralTrack` e `GpuPhysics`;
+- inicia no painel de dados, sem inicializar `SceneRenderer`, e cria a cena 3D somente quando solicitada;
 - inicializa a janela e o viewport;
-- inicializa buffers e shaders na callback `OnLoad`;
+- inicializa os buffers fisicos e o painel de dados na callback `OnLoad`; inicializa shaders e malhas da cena somente quando solicitada;
 - processa entrada de teclado em `OnUpdateFrame`;
 - acumula delta de tempo e agenda passos fixos de fisica;
 - atualiza o progresso da camera e a janela de obstaculos;
 - cria view e projection em `OnRenderFrame`;
 - libera os componentes em `OnUnload`.
 
+`SimulationDashboard` desenha apenas componentes 2D de estado e telemetria. A
+apresentacao pode ser escolhida com `--view dashboard|scene` e alternada em tempo
+de execucao por `F6`. A selecao nao altera os passos fisicos nem a configuracao do
+experimento.
+
 `SimulationClock` separa tempo real, tempo fisico e atraso acumulado. O delta de quadro e limitado a 0,05 s e a recuperacao e limitada a oito passos fixos por quadro; excesso de atraso e contado como tempo descartado no trace.
+
+`SimulationDashboard` apresenta os contadores fisicos e o desempenho CPU/GPU sem
+desenhar terreno, obstaculos ou corpos. Os tempos e contadores GPU sao readbacks
+assincronos, emitidos aproximadamente a cada segundo; os contadores detalhados nao
+estao disponiveis para mais de 4.096 corpos. A cena 3D e criada sob demanda quando
+o usuario troca para `SceneRenderer`, para evitar trabalho de culling e renderizacao
+enquanto o painel esta ativo.
 
 ### `SimulationSettings`
 
@@ -136,7 +149,7 @@ Os fontes ficam em `Shaders/` e seus subdiretorios `Dataset/` e `Neural/`; sao i
 3. A janela configura clear color, depth testing, back-face culling e viewport.
 4. `GpuPhysics.Initialize` compila os programas compute, cria SSBOs e contadores de diagnostico, localiza uniforms, inicializa arrays e envia posicoes, velocidades e materiais. A captura cria seus recursos somente quando ativada.
 5. `GpuPhysics.Initialize` cria tambem a lista inicial de obstaculos e seus dados GPU.
-6. `SceneRenderer.Initialize` compila o programa de superficie e cria VAOs/VBOs/EBOs.
+6. No modo de cena, `SceneRenderer.Initialize` compila o programa de superficie e cria VAOs/VBOs/EBOs. No painel padrao, esses recursos nao sao criados.
 7. O loop de eventos chama updates e renders ate a janela fechar.
 8. Cada janela de diagnostico pronta e gravada pelo `SimulationTrace`.
 9. `OnUnload` descarta renderizador, fisica, queries, fences, buffers de readback e arquivo de trace enquanto o contexto ainda esta valido.
@@ -157,7 +170,7 @@ A atualizacao do shader de obstaculos e limitada a mudancas de faixa; nao reenvi
 
 ### Render
 
-`OnRenderFrame` limpa color e depth. A camera olha para um ponto adiante, calcula `LookAt`, cria projecao perspectiva e passa a matriz view-projection ao `SceneRenderer`. O renderer culla discos, desenha o mundo e chama `SwapBuffers`.
+`OnRenderFrame` limpa color e depth. No modo padrao, o painel desenha somente dados e telemetria. No modo de cena, a camera calcula `LookAt` e projecao perspectiva; `SceneRenderer` culla os discos e desenha o mundo. Ambos os modos trocam os buffers ao final do quadro.
 
 ## Ownership e regras de manutencao
 

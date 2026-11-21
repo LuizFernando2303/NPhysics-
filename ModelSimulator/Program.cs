@@ -16,6 +16,7 @@ if (!File.Exists(modelPath))
 SimulationSettings.DiskCount = 2_048;
 SimulationSettings.DatasetCaptureEnabled = false;
 int? maximumPhysicsSteps = null;
+var presentation = SimulationPresentation.Dashboard;
 for (var index = 1; index < args.Length; index++)
 {
     if (args[index] == "--count"
@@ -34,9 +35,15 @@ for (var index = 1; index < args.Length; index++)
         maximumPhysicsSteps = steps;
         continue;
     }
+    if (args[index] == "--view" && index + 1 < args.Length)
+    {
+        presentation = SimulationPresentationParser.Parse(args[++index]);
+        continue;
+    }
 
-    throw new ArgumentException($"Argumento invalido: {args[index]}.");
+    throw new ArgumentException(
+        $"Argumento invalido: {args[index]}. Uso: <modelo> [--count N] [--steps N] [--view dashboard|scene].");
 }
 
-using var simulation = new PhysicsSimulation(modelPath, maximumPhysicsSteps);
+using var simulation = new PhysicsSimulation(modelPath, maximumPhysicsSteps, presentation);
 simulation.Run();

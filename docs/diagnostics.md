@@ -54,7 +54,7 @@ Linhas `type: "event"` documentam reinicializacoes. Linhas `type: "capture"` reg
 
 ### Quadros de imagem
 
-Cada linha `type: "frame"` aponta para um PNG relativo ao diretorio do trace e registra numero sequencial, resolucao, horario UTC, tempo de simulacao, `cameraX`, estado de foco e pausa. A imagem e lida do framebuffer depois do desenho e antes da troca de buffers; os arquivos podem ser abertos diretamente para comparar a cena correspondente com as amostras de telemetria ao redor. A leitura de pixels e sincrona, por isso as capturas sao limitadas aos primeiros cinco quadros espaçados por segundo e a pedidos explicitos com `F4`, ate 20 por sessao.
+Cada linha `type: "frame"` aponta para um PNG relativo ao diretorio do trace e registra numero sequencial, resolucao, horario UTC, tempo de simulacao, `cameraX`, estado de foco e pausa. A imagem e lida do framebuffer depois do desenho e antes da troca de buffers; ela reflete a apresentacao ativa (painel de dados ou cena 3D) e pode ser comparada com as amostras de telemetria ao redor. A leitura de pixels e sincrona, por isso as capturas sao limitadas aos primeiros cinco quadros espacados por segundo e a pedidos explicitos com `F4`, ate 20 por sessao.
 
 ## Definicao e interpretacao dos campos
 

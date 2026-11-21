@@ -65,6 +65,9 @@ dotnet run --project SimulationApp
 # Gerar dataset com simulacao e captura habilitada
 dotnet run --project DataGeneratorApp -- --count 4096 --seed 2026 --steps 10000
 
+# Gerar dados exibindo a cena 3D em vez do painel
+dotnet run --project DataGeneratorApp -- --count 4096 --view scene
+
 # Treinar um modelo a partir do dataset mais recente
 dotnet run --project TrainerApp
 
@@ -73,6 +76,22 @@ dotnet run --project ModelSimulator -- "C:\path\to\model.nphysmodel" --count 204
 ```
 
 `NPhysics.csproj` e a biblioteca compartilhada usada por esses executaveis e pelos testes.
+
+A simulacao inicia no painel de dados: o solver GPU continua ativo, mas o terreno,
+os obstaculos e os corpos nao sao desenhados. O painel apresenta o tempo e o total
+de passos, quantidade de corpos, tempos de submissao, tempos GPU, contatos e estados
+invalidos quando os contadores estao disponiveis, alem do historico dos tempos de
+simulacao GPU. Os dados GPU sao obtidos assincronamente, aproximadamente uma vez
+por segundo. `F6` ou o botao `3D SCENE` alterna para a cena opcional; use `F6` ou
+`DASHBOARD` para retornar. Para iniciar diretamente na cena:
+
+```powershell
+dotnet run --project SimulationApp -- --view scene
+```
+
+`--view dashboard|scene` tambem esta disponivel no gerador de dados e no simulador
+de modelo. A apresentacao e uma opcao por execucao e nao altera os arquivos de
+experimento nem o resultado da simulacao.
 
 Para executar todos os testes xUnit da solucao (incluindo novos projetos de teste):
 
@@ -98,20 +117,21 @@ O projeto usa OpenTK 4.9.4 e incorpora os arquivos GLSL no assembly durante a co
 | `PAUSE` / `RESUME` | `Espaco` | Pausar ou continuar a fisica e o movimento da camera |
 | `RESET` | `R` | Reinicializar a quantidade configurada de esferas e seus materiais |
 | `TRACE ON` / `TRACE OFF` | `F3` | Pausar ou retomar a coleta de diagnosticos |
-| `SAVE PNG` | `F4` | Salvar uma captura PNG do quadro atual para avaliacao |
-| `DATA ON` / `DATA OFF` | `F5` | Ativar ou pausar a coleta do dataset |
-| `VIEW` | `V` | Alternar visualizacao cientifica |
+| `SAVE FRAME` | `F4` | Salvar uma captura da apresentacao atual |
+| `CAPTURE ON` / `CAPTURE OFF` | `F5` | Ativar ou pausar a coleta do dataset |
+| `DASHBOARD` / `3D SCENE` | `F6` | Alternar painel de dados e cena 3D |
+| `SCI VIEW` | `V` | Alternar visualizacao cientifica na cena 3D |
 | `REPORT` | — | Abrir no navegador o relatorio HTML mais recente |
 
-A velocidade inicial da camera e 5,5 unidades por segundo. A quantidade e seed podem ser informadas no inicio; para alterar a quantidade, reinicie o processo.
-A fileira de botoes fica no canto superior esquerdo da janela e tambem responde ao mouse. Os atalhos de teclado continuam disponiveis. `REPORT` abre o relatorio `.report.html` ou `.training.html` mais recente em `%LOCALAPPDATA%/NPhysics/datasets`.
+A velocidade inicial da camera e 5,5 unidades por segundo na cena 3D. A quantidade e seed podem ser informadas no inicio; para alterar a quantidade, reinicie o processo.
+A barra de controles fica no rodape da janela e tambem responde ao mouse. Os atalhos de teclado continuam disponiveis. `REPORT` abre o relatorio `.report.html` ou `.training.html` mais recente em `%LOCALAPPDATA%/NPhysics/datasets`.
 Desfocar ou minimizar a janela nao pausa a fisica nem a telemetria; use `PAUSE` ou `Espaco` para pausar explicitamente. A leitura de teclado e botoes so ocorre enquanto a janela esta focada.
 
-O rastreamento inicia ativado e grava uma linha JSONL por amostra em `%LOCALAPPDATA%/NPhysics/traces`. Salva tambem cinco quadros PNG automaticamente no inicio e aceita capturas adicionais pelo botao `SAVE PNG` ou `F4` (limite de 20 por sessao), junto de metadados de camera/tempo no JSONL. As imagens ficam em uma pasta com o mesmo nome-base da sessao e sufixo `-frames`. O caminho da sessao aparece no console. A coleta usa readback GPU assincrono para contadores; capturas de imagem sao esparsas e fazem leitura sincronica do framebuffer. `TRACE ON/OFF` ou `F3` pausa/retoma a telemetria automatica. Para evitar contenção dos atomics globais dos shaders, contadores detalhados ficam indisponiveis acima de 4.096 esferas; os tempos GPU e o trace continuam ativos, e o cabecalho JSONL registra essa disponibilidade.
+O rastreamento inicia ativado e grava uma linha JSONL por amostra em `%LOCALAPPDATA%/NPhysics/traces`. Salva tambem cinco capturas da apresentacao automaticamente no inicio e aceita capturas adicionais pelo botao `SAVE FRAME` ou `F4` (limite de 20 por sessao), junto de metadados de camera/tempo no JSONL. As imagens ficam em uma pasta com o mesmo nome-base da sessao e sufixo `-frames`. O caminho da sessao aparece no console. A coleta usa readback GPU assincrono para contadores; capturas de imagem sao esparsas e fazem leitura sincronica do framebuffer. `TRACE ON/OFF` ou `F3` pausa/retoma a telemetria automatica. Para evitar contenção dos atomics globais dos shaders, contadores detalhados ficam indisponiveis acima de 4.096 esferas; os tempos GPU e o trace continuam ativos, e o cabecalho JSONL registra essa disponibilidade.
 
 ## Fase 1 de coleta neural
 
-A captura binaria e os diagnosticos JSONL iniciam automaticamente em cada sessao. `DATA OFF` ou `F5` pausa somente a captura do dataset; `TRACE ON/OFF` ou `F3` controla os diagnosticos. Tambem e possivel substituir o padrao pela linha de comando com `--capture false` ou `--capture true`:
+A captura binaria e os diagnosticos JSONL iniciam automaticamente em cada sessao. `CAPTURE OFF` ou `F5` pausa somente a captura do dataset; `TRACE ON/OFF` ou `F3` controla os diagnosticos. Tambem e possivel substituir o padrao pela linha de comando com `--capture false` ou `--capture true`:
 
 ```powershell
 dotnet run --project SimulationApp -- --count 4096 --seed 2026 --capture true
@@ -208,7 +228,7 @@ O executavel de simulacao geral tambem aceita o backend neural experimental dire
 dotnet run --project SimulationApp -- --model "%LOCALAPPDATA%\NPhysics\datasets\capture.nphysmodel" --count 2048
 ```
 
-Para validar carregamento e alguns passos sem deixar a janela aberta, acrescente `--steps 10`. O modo e experimental: correcoes de posicao/velocidade/rotacao sao limitadas por seguranca, a vizinhanca considera no maximo 16 corpos, contatos com obstaculos ainda nao sao simulados e nao ha garantia de estabilidade acumulada nem equivalencia ao Teacher. O trace identifica `solverBackend: neural-experimental` e registra o modelo. A captura Teacher fica desativada neste executavel para nao gerar rotulos incorretos.
+Para validar carregamento e alguns passos sem deixar a janela aberta, acrescente `--steps 10`. O modo de apresentacao opcional e `--view scene`; o painel de dados e padrao. O modo neural e experimental: correcoes de posicao/velocidade/rotacao sao limitadas por seguranca, a vizinhanca considera no maximo 16 corpos, contatos com obstaculos ainda nao sao simulados e nao ha garantia de estabilidade acumulada nem equivalencia ao Teacher. O trace identifica `solverBackend: neural-experimental` e registra o modelo. A captura Teacher fica desativada neste executavel para nao gerar rotulos incorretos.
 
 ## Arquitetura
 
@@ -357,7 +377,7 @@ As esferas iniciais sao arranjadas em colunas ao longo de X, 110 faixas em Z e a
 - Projecao perspectiva OpenGL, com viewport redimensionavel.
 - Rampa como malha triangular com normais calculadas numericamente.
 - Particulas como sprites circulares billboard, desenhadas por instancing indireto.
-- Os modos cientificos `V`/`VIEW` sao energia potencial, velocidade linear, velocidade angular, massa e restituicao.
+- Os modos cientificos `V`/`SCI VIEW` sao energia potencial, velocidade linear, velocidade angular, massa e restituicao.
 - A paleta cientifica usa azul para valores baixos, ciano/amarelo para intermediarios e vermelho para valores altos.
 - Os modos sao uma leitura do estado fisico atual e nao alteram posicoes, velocidades ou colisoes.
 - Velocidade linear usa limite de escala de 20 m/s; velocidade angular usa 50 rad/s. Massa e restituicao usam os intervalos implementados pela configuracao.

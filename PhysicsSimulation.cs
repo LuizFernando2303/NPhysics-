@@ -20,6 +20,7 @@ internal sealed class PhysicsSimulation : GameWindow
     private int _totalPhysicsSteps;
     private SceneRenderer? _renderer;
     private SimulationHud? _hud;
+    private SimulationDashboard? _dashboard;
     private SimulationTrace? _trace;
     private SimulationFrameCapture? _frameCapture;
     private float _cameraX;
@@ -29,6 +30,8 @@ internal sealed class PhysicsSimulation : GameWindow
     private double _frameCaptureTimeSeconds;
     private int _automaticFrameCaptureCount;
     private bool _manualFrameCaptureRequested;
+    private bool _showDashboard;
+    private GpuTelemetrySample? _latestTelemetry;
     private bool _paused;
     private int _framesInWindow;
     private int _physicsStepsInWindow;
@@ -36,18 +39,22 @@ internal sealed class PhysicsSimulation : GameWindow
     private double _physicsSubmissionMillisecondsInWindow;
     private double _renderSubmissionMillisecondsInWindow;
 
-    public PhysicsSimulation(string? neuralModelPath = null, int? maximumPhysicsSteps = null)
+    public PhysicsSimulation(
+        string? neuralModelPath = null,
+        int? maximumPhysicsSteps = null,
+        SimulationPresentation presentation = SimulationPresentation.Dashboard)
         : base(GameWindowSettings.Default, new NativeWindowSettings
         {
-            ClientSize = new Vector2i(1280, 720),
-            Title = neuralModelPath is null
-                ? $"NPhysics - {SimulationSettings.DiskCount} esferas - rampa {SimulationSettings.InclinationDegrees:0} graus"
-                : $"NPhysics Neural experimental - {SimulationSettings.DiskCount} esferas",
+            ClientSize = new Vector2i(1440, 900),
+            Title = presentation == SimulationPresentation.Dashboard
+                ? "NPhysics | Simulation Monitor"
+                : "NPhysics | 3D Scene",
             APIVersion = new Version(4, 3),
             Profile = ContextProfile.Core,
         })
     {
         _neuralModelPath = neuralModelPath;
+        _showDashboard = presentation == SimulationPresentation.Dashboard;
         if (maximumPhysicsSteps <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumPhysicsSteps));
@@ -58,7 +65,7 @@ internal sealed class PhysicsSimulation : GameWindow
     protected override void OnLoad()
     {
         base.OnLoad();
-        GL.ClearColor(0.055f, 0.075f, 0.12f, 1f);
+        GL.ClearColor(0.035f, 0.051f, 0.071f, 1f);
         GL.Enable(EnableCap.DepthTest);
         GL.Enable(EnableCap.CullFace);
         GL.CullFace(TriangleFace.Back);
@@ -74,9 +81,12 @@ internal sealed class PhysicsSimulation : GameWindow
             Close();
             return;
         }
-        _renderer = new SceneRenderer(_track, _physics);
-        _renderer.Initialize();
         _hud = new SimulationHud();
+        _dashboard = new SimulationDashboard();
+        if (!_showDashboard)
+        {
+            InitializeSceneRenderer();
+        }
         _trace = new SimulationTrace(
             GL.GetString(StringName.Vendor) ?? "unknown",
             GL.GetString(StringName.Renderer) ?? "unknown",
@@ -90,7 +100,7 @@ internal sealed class PhysicsSimulation : GameWindow
         {
             Console.WriteLine("Backend neural ativo; dados do dataset Teacher desativados nesta sessao.");
         }
-        Console.WriteLine("Capturas de imagem: automaticas no inicio e sob demanda com F4.");
+        Console.WriteLine("Capturas da apresentacao: automaticas no inicio e sob demanda com F4.");
         _cameraX = -8f;
     }
 
@@ -104,16 +114,26 @@ internal sealed class PhysicsSimulation : GameWindow
     {
         base.OnUpdateFrame(e);
         ReadTelemetry();
-        var mouseAction = _hud?.Update(
-            MousePosition,
-            MouseState.IsButtonPressed(MouseButton.Button1),
-            ClientSize.X,
-            _paused,
-            _trace?.IsEnabled == true,
-            _physics.IsDatasetCaptureEnabled,
-            _frameCapture?.CanCapture == true,
-            IsFocused,
-            datasetCaptureAvailable: !_physics.IsModelBackend);
+        var dashboardState = GetDashboardState();
+        var mouseAction = _showDashboard
+            ? _dashboard?.Update(
+                MousePosition,
+                MouseState.IsButtonPressed(MouseButton.Button1),
+                ClientSize.X,
+                ClientSize.Y,
+                dashboardState,
+                _frameCapture?.CanCapture == true,
+                IsFocused)
+            : _hud?.Update(
+                MousePosition,
+                MouseState.IsButtonPressed(MouseButton.Button1),
+                ClientSize.X,
+                _paused,
+                _trace?.IsEnabled == true,
+                _physics.IsDatasetCaptureEnabled,
+                _frameCapture?.CanCapture == true,
+                IsFocused,
+                datasetCaptureAvailable: !_physics.IsModelBackend);
         if (IsFocused)
         {
             _frameCaptureTimeSeconds += Math.Min(e.Time, 1.0 / 20.0);
@@ -154,31 +174,29 @@ internal sealed class PhysicsSimulation : GameWindow
     {
         base.OnRenderFrame(e);
         GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
-
-        var targetX = _cameraX + 5f;
-        var target = new Vector3(targetX, _track.Height(targetX, 0f) + 0.8f, 0f);
-        var eye = target + _track.SurfaceNormal(targetX, 0f) * 26f + new Vector3(0f, 0f, 8f);
-        var cameraForward = (target - eye).Normalized();
-        var cameraRight = Vector3.Cross(cameraForward, Vector3.UnitY).Normalized();
-        var cameraUp = Vector3.Cross(cameraRight, cameraForward).Normalized();
-        var view = Matrix4.LookAt(eye, target, Vector3.UnitY);
-        var projection = Matrix4.CreatePerspectiveFieldOfView(
-            MathHelper.DegreesToRadians(50f),
-            (float)Math.Max(1, ClientSize.X) / Math.Max(1, ClientSize.Y),
-            0.1f,
-            180f);
-
         var renderStart = Stopwatch.GetTimestamp();
-        _renderer?.Render(view * projection, _cameraX, cameraRight, cameraUp);
-        _hud?.Render(
-            ClientSize.X,
-            ClientSize.Y,
-            MousePosition,
-            _paused,
-            _trace?.IsEnabled == true,
-            _physics.IsDatasetCaptureEnabled,
-            _frameCapture?.CanCapture == true,
-            datasetCaptureAvailable: !_physics.IsModelBackend);
+        if (_showDashboard)
+        {
+            _dashboard?.Render(
+                ClientSize.X,
+                ClientSize.Y,
+                MousePosition,
+                GetDashboardState(),
+                _frameCapture?.CanCapture == true);
+        }
+        else
+        {
+            RenderScene();
+            _hud?.Render(
+                ClientSize.X,
+                ClientSize.Y,
+                MousePosition,
+                _paused,
+                _trace?.IsEnabled == true,
+                _physics.IsDatasetCaptureEnabled,
+                _frameCapture?.CanCapture == true,
+                datasetCaptureAvailable: !_physics.IsModelBackend);
+        }
         CaptureFrameIfRequested();
         SwapBuffers();
         _renderSubmissionMillisecondsInWindow += Stopwatch.GetElapsedTime(renderStart).TotalMilliseconds;
@@ -212,6 +230,7 @@ internal sealed class PhysicsSimulation : GameWindow
     {
         _renderer?.Dispose();
         _hud?.Dispose();
+        _dashboard?.Dispose();
         _physics.Dispose();
         _trace?.Dispose();
         base.OnUnload();
@@ -220,6 +239,8 @@ internal sealed class PhysicsSimulation : GameWindow
     private void ResetSimulation()
     {
         _cameraX = -8f;
+        _latestTelemetry = null;
+        _dashboard?.ResetHistory();
         _paused = false;
         _simulationClock.SetPaused(false);
         _simulationClock.Reset();
@@ -259,6 +280,10 @@ internal sealed class PhysicsSimulation : GameWindow
         {
             HandleControlAction(SimulationControlAction.CycleVisualization);
         }
+        if (KeyboardState.IsKeyPressed(Keys.F6))
+        {
+            HandleControlAction(SimulationControlAction.ToggleDashboard);
+        }
     }
 
     private void HandleControlAction(SimulationControlAction action)
@@ -281,7 +306,6 @@ internal sealed class PhysicsSimulation : GameWindow
                 }
                 _trace.SetEnabled(!_trace.IsEnabled);
                 _physics.SetDiagnosticsEnabled(_trace.IsEnabled);
-                Title = $"NPhysics | Rastreamento {(_trace.IsEnabled ? "ativo" : "pausado")}";
                 Console.WriteLine(
                     $"Rastreamento {(_trace.IsEnabled ? "ativado" : "pausado")}: {_trace.FilePath}");
                 break;
@@ -306,7 +330,6 @@ internal sealed class PhysicsSimulation : GameWindow
                     Console.Error.WriteLine($"Nao foi possivel ativar a captura do dataset: {exception.Message}");
                     return;
                 }
-                Title = $"NPhysics | Captura dataset {(enabled ? "ativa" : "pausada")}";
                 Console.WriteLine(
                     $"Captura dataset {(enabled ? "ativada" : "pausada")}; "
                     + $"amostras={_physics.DatasetSampleCount:N0}");
@@ -321,6 +344,25 @@ internal sealed class PhysicsSimulation : GameWindow
                         _cameraX,
                         _paused);
                 }
+                break;
+            case SimulationControlAction.ToggleDashboard:
+                _showDashboard = !_showDashboard;
+                Title = _showDashboard
+                    ? "NPhysics | Simulation Monitor"
+                    : "NPhysics | 3D Scene";
+                if (_showDashboard)
+                {
+                    _renderer?.Dispose();
+                    _renderer = null;
+                }
+                else
+                {
+                    InitializeSceneRenderer();
+                }
+                _trace?.WriteEvent(
+                    _showDashboard ? "dashboard-view" : "scene-view",
+                    _cameraX,
+                    _paused);
                 break;
             case SimulationControlAction.OpenReport:
                 OpenLatestReport();
@@ -379,17 +421,48 @@ internal sealed class PhysicsSimulation : GameWindow
     {
         while (_physics.TryReadTelemetry(out var sample))
         {
+            _latestTelemetry = sample;
+            _dashboard?.AddTelemetry(sample);
             _trace?.WriteSample(sample);
-            if (_trace?.IsEnabled == true)
-            {
-                Title = $"NPhysics | GPU sim {sample.LastSimulationGpuMilliseconds:0.00} ms"
-                    + $" | candidatos {sample.CandidateChecks:N0}"
-                    + $" | contatos {sample.DiskContacts + sample.RampContacts + sample.ObstacleContacts:N0}"
-                    + $" | invalidos {sample.InvalidStates:N0}"
-                    + $" | t={sample.FrameWindow.SimulationTimeSeconds:0.00}s"
-                    + $" | dropped={sample.FrameWindow.DroppedTimeSeconds:0.000}s";
-            }
         }
+    }
+
+    private SimulationDashboardState GetDashboardState()
+    {
+        return new SimulationDashboardState(
+            SimulationSettings.DiskCount,
+            _totalPhysicsSteps,
+            _simulationClock.SimulationTimeSeconds,
+            _paused,
+            _trace?.IsEnabled == true,
+            _physics.IsDatasetCaptureEnabled,
+            _physics.DatasetSampleCount,
+            _physics.DetailedCountersAvailable,
+            _physics.IsModelBackend,
+            _latestTelemetry);
+    }
+
+    private void InitializeSceneRenderer()
+    {
+        _renderer = new SceneRenderer(_track, _physics);
+        _renderer.Initialize();
+    }
+
+    private void RenderScene()
+    {
+        var targetX = _cameraX + 5f;
+        var target = new Vector3(targetX, _track.Height(targetX, 0f) + 0.8f, 0f);
+        var eye = target + _track.SurfaceNormal(targetX, 0f) * 26f + new Vector3(0f, 0f, 8f);
+        var cameraForward = (target - eye).Normalized();
+        var cameraRight = Vector3.Cross(cameraForward, Vector3.UnitY).Normalized();
+        var cameraUp = Vector3.Cross(cameraRight, cameraForward).Normalized();
+        var view = Matrix4.LookAt(eye, target, Vector3.UnitY);
+        var projection = Matrix4.CreatePerspectiveFieldOfView(
+            MathHelper.DegreesToRadians(50f),
+            (float)Math.Max(1, ClientSize.X) / Math.Max(1, ClientSize.Y),
+            0.1f,
+            180f);
+        _renderer?.Render(view * projection, _cameraX, cameraRight, cameraUp);
     }
 
     private void CaptureFrameIfRequested()

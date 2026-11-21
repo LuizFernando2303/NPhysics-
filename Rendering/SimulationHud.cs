@@ -11,6 +11,7 @@ internal enum SimulationControlAction
     CaptureFrame,
     ToggleDatasetCapture,
     CycleVisualization,
+    ToggleDashboard,
     OpenReport,
 }
 
@@ -53,6 +54,27 @@ internal sealed class SimulationHud : IDisposable
         ['X'] = ["10001", "10001", "01010", "00100", "01010", "10001", "10001"],
         ['Y'] = ["10001", "10001", "01010", "00100", "00100", "00100", "00100"],
         ['Z'] = ["11111", "00001", "00010", "00100", "01000", "10000", "11111"],
+        ['0'] = ["01110", "10001", "10011", "10101", "11001", "10001", "01110"],
+        ['1'] = ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
+        ['2'] = ["01110", "10001", "00001", "00010", "00100", "01000", "11111"],
+        ['3'] = ["11110", "00001", "00001", "01110", "00001", "00001", "11110"],
+        ['4'] = ["00010", "00110", "01010", "10010", "11111", "00010", "00010"],
+        ['5'] = ["11111", "10000", "10000", "11110", "00001", "00001", "11110"],
+        ['6'] = ["01110", "10000", "10000", "11110", "10001", "10001", "01110"],
+        ['7'] = ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
+        ['8'] = ["01110", "10001", "10001", "01110", "10001", "10001", "01110"],
+        ['9'] = ["01110", "10001", "10001", "01111", "00001", "00001", "01110"],
+        [':'] = ["00000", "00100", "00100", "00000", "00100", "00100", "00000"],
+        ['.'] = ["00000", "00000", "00000", "00000", "00000", "00110", "00110"],
+        [','] = ["00000", "00000", "00000", "00000", "00110", "00110", "00100"],
+        ['-'] = ["00000", "00000", "00000", "11111", "00000", "00000", "00000"],
+        ['+'] = ["00000", "00100", "00100", "11111", "00100", "00100", "00000"],
+        ['/'] = ["00001", "00010", "00010", "00100", "01000", "01000", "10000"],
+        ['%'] = ["11001", "11010", "00100", "01000", "10110", "00110", "00000"],
+        ['_'] = ["00000", "00000", "00000", "00000", "00000", "00000", "11111"],
+        ['('] = ["00010", "00100", "01000", "01000", "01000", "00100", "00010"],
+        [')'] = ["01000", "00100", "00010", "00010", "00010", "00100", "01000"],
+        ['='] = ["00000", "11111", "00000", "11111", "00000", "00000", "00000"],
     };
 
     private readonly int _program;
@@ -172,21 +194,21 @@ internal sealed class SimulationHud : IDisposable
         {
             var hovered = button.Bounds.Contains(cursorPosition);
             var color = !button.Enabled
-                ? (0.16f, 0.20f, 0.26f, 0.88f)
+                ? (0.09f, 0.11f, 0.14f, 0.96f)
                 : hovered
-                    ? (0.13f, 0.43f, 0.37f, 0.98f)
-                    : (0.08f, 0.15f, 0.22f, 0.92f);
+                    ? (0.10f, 0.23f, 0.24f, 1f)
+                    : (0.07f, 0.09f, 0.12f, 0.98f);
             AddRectangle(button.Bounds, color);
             AddBorder(button.Bounds, hovered && button.Enabled
-                ? (0.43f, 0.93f, 0.72f, 1f)
-                : (0.28f, 0.41f, 0.52f, 1f));
+                ? (0.28f, 0.65f, 0.63f, 1f)
+                : (0.18f, 0.23f, 0.29f, 1f));
 
             var textWidth = Math.Max(0, button.Label.Length * GlyphAdvance - (GlyphAdvance - GlyphScale));
             var textX = button.Bounds.X + (button.Bounds.Width - textWidth) * 0.5f;
             var textY = button.Bounds.Y + (button.Bounds.Height - GlyphHeight) * 0.5f;
             var textColor = button.Enabled
-                ? (0.91f, 0.96f, 0.99f, 1f)
-                : (0.52f, 0.59f, 0.66f, 1f);
+                ? (0.87f, 0.90f, 0.93f, 1f)
+                : (0.49f, 0.55f, 0.61f, 1f);
             AddText(button.Label, textX, textY, textColor);
         }
 
@@ -232,11 +254,12 @@ internal sealed class SimulationHud : IDisposable
             new HudButton("SAVE PNG", SimulationControlAction.CaptureFrame, canCaptureFrame),
             new HudButton(
                 datasetCaptureAvailable
-                    ? datasetCaptureEnabled ? "DATA ON" : "DATA OFF"
+                    ? datasetCaptureEnabled ? "CAPTURE ON" : "CAPTURE OFF"
                     : "MODEL",
                 SimulationControlAction.ToggleDatasetCapture,
                 datasetCaptureAvailable),
-            new HudButton("VIEW", SimulationControlAction.CycleVisualization, true),
+            new HudButton("SCI VIEW", SimulationControlAction.CycleVisualization, true),
+            new HudButton("DASHBOARD", SimulationControlAction.ToggleDashboard, true),
             new HudButton("REPORT", SimulationControlAction.OpenReport, true),
         };
         var result = new HudButton[buttons.Length];
@@ -266,7 +289,7 @@ internal sealed class SimulationHud : IDisposable
     {
         foreach (var character in text)
         {
-            if (Glyphs.TryGetValue(character, out var glyph))
+            if (GetGlyph(character) is { } glyph)
             {
                 for (var row = 0; row < glyph.Length; row++)
                 for (var column = 0; column < glyph[row].Length; column++)
@@ -282,9 +305,15 @@ internal sealed class SimulationHud : IDisposable
                             color);
                     }
                 }
+
             }
             x += GlyphAdvance;
         }
+    }
+
+    internal static string[]? GetGlyph(char character)
+    {
+        return Glyphs.GetValueOrDefault(char.ToUpperInvariant(character));
     }
 
     private void AddBorder(HudRectangle bounds, (float R, float G, float B, float A) color)

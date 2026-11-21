@@ -14,6 +14,12 @@ internal static class Program
         string? neuralModelPath = null;
         int? maximumPhysicsSteps = null;
         string? experimentSavePath = null;
+        var presentation = SimulationPresentation.Dashboard;
+        if (commandLineArguments[^1] == "--view")
+        {
+            throw new ArgumentException(
+                "Missing view value. Expected '--view dashboard' or '--view scene'.");
+        }
         if (commandLineArguments.Length == 2
             && commandLineArguments[1] == "--self-test")
         {
@@ -51,6 +57,10 @@ internal static class Program
                         SimulationSettings.Seed = seed;
                         experiment = experiment with { Seed = seed };
                     }
+                    i++;
+                    break;
+                case "--view":
+                    presentation = SimulationPresentationParser.Parse(value);
                     i++;
                     break;
                 case "--capture":
@@ -133,7 +143,10 @@ internal static class Program
             experiment.Save(experimentSavePath);
             Console.WriteLine($"Configuracao de experimento salva: {Path.GetFullPath(experimentSavePath)}");
         }
-        using var simulation = new PhysicsSimulation(neuralModelPath, maximumPhysicsSteps);
+        using var simulation = new PhysicsSimulation(
+            neuralModelPath,
+            maximumPhysicsSteps,
+            presentation);
         simulation.Run();
     }
 

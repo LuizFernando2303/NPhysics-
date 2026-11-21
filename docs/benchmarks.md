@@ -10,13 +10,13 @@ The project does not fabricate or publish performance values.
 Run one process at a time and keep the window visible:
 
 ```powershell
-dotnet run --project SimulationApp -c Release -- --count 4096 --seed 2026 --capture false --save-experiment benchmark.json
+dotnet run --project SimulationApp -c Release -- --count 4096 --seed 2026 --capture false --save-experiment benchmark.json --view scene
 ```
 
 Repeat with larger counts when device memory and runtime allow:
 
 ```powershell
-dotnet run --project SimulationApp -c Release -- --experiment benchmark.json --count 10000
+dotnet run --project SimulationApp -c Release -- --experiment benchmark.json --count 10000 --view scene
 ```
 
 The JSON configuration records count and seed. The JSONL session trace records:
