@@ -10,6 +10,9 @@
     <EmbeddedResource Include="Shaders\*.glsl" />
     <EmbeddedResource Include="Shaders\Dataset\*.glsl" />
     <EmbeddedResource Include="Shaders\Neural\*.glsl" />
+    <EmbeddedResource Include="Rendering\Fonts\Roboto-Variable.ttf" LogicalName="NPhysics.Rendering.Fonts.Roboto-Variable.ttf" />
+    <None Update="Rendering\Fonts\OFL.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <PackageReference Include="StbTrueTypeNext" Version="1.0.3" />
   </ItemGroup>
 
   <ItemGroup>

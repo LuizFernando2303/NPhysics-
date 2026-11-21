@@ -380,6 +380,7 @@ As esferas iniciais sao arranjadas em colunas ao longo de X, 110 faixas em Z e a
 - Os modos cientificos `V`/`SCI VIEW` sao energia potencial, velocidade linear, velocidade angular, massa e restituicao.
 - A paleta cientifica usa azul para valores baixos, ciano/amarelo para intermediarios e vermelho para valores altos.
 - Os modos sao uma leitura do estado fisico atual e nao alteram posicoes, velocidades ou colisoes.
+- O painel e o HUD usam a fonte Roboto incorporada, com rasterizacao antialias para manter a tipografia legivel em todas as plataformas.
 - Velocidade linear usa limite de escala de 20 m/s; velocidade angular usa 50 rad/s. Massa e restituicao usam os intervalos implementados pela configuracao.
 - A camera segue a rampa por uma vista proxima, elevada e obliqua, enquadrada em um trecho curto para destacar a largura, relevo, obstaculos e esferas em movimento.
 - Obstaculos circulares usam malha cilindrica; blocos usam malha cubica.

@@ -20,7 +20,6 @@ internal sealed class SimulationDashboard : IDisposable
 {
     private const int VertexStride = 6;
     private const float Margin = 24f;
-    private const float GlyphAdvance = 7f;
     private static readonly (float R, float G, float B, float A) Background = (0.035f, 0.051f, 0.071f, 1f);
     private static readonly (float R, float G, float B, float A) Panel = (0.063f, 0.082f, 0.110f, 1f);
     private static readonly (float R, float G, float B, float A) PanelRaised = (0.078f, 0.102f, 0.133f, 1f);
@@ -34,6 +33,7 @@ internal sealed class SimulationDashboard : IDisposable
     private readonly int _vao;
     private readonly int _vertexBuffer;
     private readonly int _viewportLocation;
+    private readonly SimulationTextRenderer _textRenderer;
     private readonly List<float> _vertices = [];
     private readonly List<double> _simulationMilliseconds = [];
     private readonly MouseButtonEdgeDetector _leftButtonEdge = new();
@@ -41,6 +41,7 @@ internal sealed class SimulationDashboard : IDisposable
 
     public SimulationDashboard()
     {
+        _textRenderer = new SimulationTextRenderer();
         const string vertexShader = """
             #version 430 core
             layout(location = 0) in vec2 aPosition;
@@ -125,6 +126,7 @@ internal sealed class SimulationDashboard : IDisposable
         var viewportWidth = Math.Max(1, width);
         var viewportHeight = Math.Max(1, height);
         _vertices.Clear();
+        _textRenderer.BeginFrame();
 
         AddRectangle(new Rectangle(0, 0, viewportWidth, viewportHeight), Background);
         DrawHeader(viewportWidth, state);
@@ -155,6 +157,7 @@ internal sealed class SimulationDashboard : IDisposable
         GL.Uniform2(_viewportLocation, (float)viewportWidth, (float)viewportHeight);
         GL.BindVertexArray(_vao);
         GL.DrawArrays(PrimitiveType.Triangles, 0, vertexData.Length / VertexStride);
+        _textRenderer.Render(viewportWidth, viewportHeight);
         GL.Disable(EnableCap.Blend);
         GL.Enable(EnableCap.CullFace);
         GL.Enable(EnableCap.DepthTest);
@@ -370,32 +373,12 @@ internal sealed class SimulationDashboard : IDisposable
         (float R, float G, float B, float A) color,
         float scale)
     {
-        foreach (var character in text.ToUpperInvariant())
-        {
-            if (SimulationHud.GetGlyph(character) is { } glyph)
-            {
-                for (var row = 0; row < glyph.Length; row++)
-                for (var column = 0; column < glyph[row].Length; column++)
-                {
-                    if (glyph[row][column] == '1')
-                    {
-                        AddRectangle(
-                            new Rectangle(
-                                x + column * scale,
-                                y + row * scale,
-                                scale,
-                                scale),
-                            color);
-                    }
-                }
-            }
-            x += GlyphAdvance * scale;
-        }
+        _textRenderer.AddText(text, x, y, color, 12f * scale);
     }
 
-    private static float TextWidth(string text, float scale)
+    private float TextWidth(string text, float scale)
     {
-        return Math.Max(0, text.Length * GlyphAdvance * scale - scale);
+        return _textRenderer.MeasureText(text, 12f * scale);
     }
 
     private void AddRectangle(Rectangle bounds, (float R, float G, float B, float A) color)
@@ -418,7 +401,7 @@ internal sealed class SimulationDashboard : IDisposable
         _vertices.Add(color.A);
     }
 
-    private static DashboardButton[] CreateButtons(
+    private DashboardButton[] CreateButtons(
         int width,
         int height,
         SimulationDashboardState state,
@@ -437,7 +420,7 @@ internal sealed class SimulationDashboard : IDisposable
         return LayoutButtons(width, height, labels);
     }
 
-    private static DashboardButton[] LayoutButtons(
+    private DashboardButton[] LayoutButtons(
         int width,
         int height,
         IReadOnlyList<(string Label, SimulationControlAction Action, bool Enabled)> labels)
@@ -504,6 +487,7 @@ internal sealed class SimulationDashboard : IDisposable
         GL.DeleteBuffer(_vertexBuffer);
         GL.DeleteVertexArray(_vao);
         GL.DeleteProgram(_program);
+        _textRenderer.Dispose();
         _disposed = true;
     }
 
