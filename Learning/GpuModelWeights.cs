@@ -11,6 +11,7 @@ internal sealed class GpuModelWeights : IDisposable
     public GpuModelWeights(ModelSerializer.ModelParameters model)
     {
         ArgumentNullException.ThrowIfNull(model);
+        ValidateModelArchitecture(model);
         _layers = new Dictionary<string, GpuLayerSlice>(StringComparer.Ordinal);
         var packed = new List<float>();
         foreach (var layer in model.Layers.OrderBy(layer => LayerOrder(layer.Name)))
@@ -87,6 +88,38 @@ internal sealed class GpuModelWeights : IDisposable
         "decoder" => 6,
         _ => throw new InvalidDataException($"Camada desconhecida no modelo: {name}."),
     };
+
+    internal static void ValidateModelArchitecture(ModelSerializer.ModelParameters model)
+    {
+        var expected = new Dictionary<string, (int Input, int Output)>(StringComparer.Ordinal)
+        {
+            ["node_encoder"] = (GraphNetwork.NodeInputSize, GraphNetwork.LatentSize),
+            ["edge_encoder"] = (GraphNetwork.EdgeInputSize, GraphNetwork.LatentSize),
+            ["message_0"] = (GraphNetwork.LatentSize * 3, GraphNetwork.LatentSize),
+            ["message_1"] = (GraphNetwork.LatentSize * 3, GraphNetwork.LatentSize),
+            ["update_0"] = (GraphNetwork.LatentSize * 2, GraphNetwork.LatentSize),
+            ["update_1"] = (GraphNetwork.LatentSize * 2, GraphNetwork.LatentSize),
+            ["decoder"] = (GraphNetwork.LatentSize, GraphNetwork.OutputSize),
+        };
+        if (model.Layers.Length != expected.Count)
+        {
+            throw new InvalidDataException("Modelo possui quantidade invalida de camadas.");
+        }
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var layer in model.Layers)
+        {
+            if (!seen.Add(layer.Name)
+                || !expected.TryGetValue(layer.Name, out var dimensions)
+                || layer.InputSize != dimensions.Input
+                || layer.OutputSize != dimensions.Output
+                || layer.Weights.Length != checked(layer.InputSize * layer.OutputSize)
+                || layer.Bias.Length != layer.OutputSize)
+            {
+                throw new InvalidDataException(
+                    $"Arquitetura GPU invalida na camada {layer.Name ?? "<desconhecida>" }.");
+            }
+        }
+    }
 
     public void Dispose()
     {

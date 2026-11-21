@@ -1,0 +1,51 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore NPhysics.sln
+      - name: Build Debug
+        run: dotnet build NPhysics.sln --configuration Debug --no-restore
+      - name: Build Release
+        run: dotnet build NPhysics.sln --configuration Release --no-restore
+      - name: Test solution in Debug
+        run: dotnet test NPhysics.sln --configuration Debug --no-build --no-restore --logger "trx;LogFileName=nphysics-tests-debug.trx"
+      - name: Test solution in Release
+        run: dotnet test NPhysics.sln --configuration Release --no-build --no-restore --logger "trx;LogFileName=nphysics-tests-release.trx"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nphysics-test-results
+          if-no-files-found: error
+          path: |
+            NPhysics.Tests/TestResults/*.trx
+      - name: Smoke test in Debug
+        run: dotnet run --project SimulationApp/NPhysics.Simulation.csproj --configuration Debug --no-build -- --self-test
+      - name: Smoke test in Release
+        run: dotnet run --project SimulationApp/NPhysics.Simulation.csproj --configuration Release --no-build -- --self-test
+      - name: Upload release assemblies
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nphysics-release-build
+          if-no-files-found: warn
+          path: |
+            bin/Release/net10.0/**
+            DataGeneratorApp/bin/Release/net10.0/**
+            SimulationApp/bin/Release/net10.0/**
+            TrainerApp/bin/Release/net10.0/**
+            ModelSimulator/bin/Release/net10.0/**

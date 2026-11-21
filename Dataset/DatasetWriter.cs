@@ -45,6 +45,14 @@ internal sealed class DatasetWriter : IDisposable
         {
             throw new ArgumentException("O bloco precisa conter seis contadores de categoria.");
         }
+        for (var i = 0; i < sampleFloatCount; i++)
+        {
+            if (!float.IsFinite(samples[i]))
+            {
+                throw new InvalidDataException(
+                    $"A captura encontrou NaN ou Infinity no float {i:N0} antes de escrever o bloco.");
+            }
+        }
 
         lock (_sync)
         {

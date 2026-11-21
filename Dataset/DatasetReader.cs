@@ -112,9 +112,18 @@ internal sealed class DatasetReader : IDisposable
             _reader.ReadUInt32();
             _reader.ReadUInt32();
             _reader.ReadUInt32();
-            if (floatCount != sampleCount * DatasetSchema.FloatsPerSample)
+            var expectedFloatCount = checked(
+                (long)sampleCount * DatasetSchema.FloatsPerSample);
+            if (expectedFloatCount > int.MaxValue
+                || floatCount != (uint)expectedFloatCount)
             {
                 throw new InvalidDataException("Quantidade de floats inconsistente no bloco.");
+            }
+            var bytesRemaining = _stream.Length - _stream.Position;
+            var payloadBytes = checked((long)floatCount * sizeof(float));
+            if (payloadBytes < 0 || payloadBytes > bytesRemaining)
+            {
+                throw new EndOfStreamException("Bloco de dataset truncado.");
             }
             var samples = new float[floatCount];
             for (var i = 0; i < samples.Length; i++)

@@ -1,28 +1,29 @@
 # Arquitetura e ciclo de vida
 
-Este documento descreve a divisao de responsabilidades, a direcao das dependencias e o ciclo de vida da aplicacao NPhysics.
+Este documento descreve a divisao de responsabilidades, a direcao das dependencias e o ciclo de vida dos projetos NPhysics.
 
 ## Visao geral
 
-O projeto separa a janela e o loop da aplicacao, a simulacao numerica, o mundo procedural, a renderizacao e os programas GLSL. As classes de alto nivel coordenam os subsistemas; os shaders executam trabalho massivamente paralelo.
+Os executaveis sao pontos de entrada especificos para cada etapa. A logica reutilizavel, os formatos de dados, o modelo e a simulacao ficam na biblioteca `NPhysics`; nenhum executavel depende do codigo-fonte de outro executavel.
 
 ```text
-Program
-  ├── --train / --validate-dataset (comandos sem janela de simulacao)
-  ├── --gpu-model-check (janela OpenGL temporaria)
-  └── PhysicsSimulation (GameWindow)
-      ├── ProceduralTrack
-      ├── GpuPhysics
-      │   ├── SimulationSettings
-      │   ├── GlProgram / ShaderSource
-      │   ├── GpuDiagnostics
-      │   └── DatasetGenerator (opt-in)
-      │       ├── CaptureTraining.comp.glsl
-      │       ├── AsyncGpuReadback
-      │       └── DatasetWriter (.nphysdata)
-      ├── SimulationTrace
-      └── SceneRenderer
+NPhysics.DataGenerator ─┐
+NPhysics.Trainer ───────┤
+NPhysics.ModelSimulator ├──> NPhysics (biblioteca compartilhada)
+NPhysics.Simulation ────┘      ├── Dataset: captura, leitura e escrita
+                               ├── Learning: treino, inferencia e serializacao
+                               └── Physics, World, Rendering e Diagnostics
 ```
+
+O fluxo de trabalho fica separado em tres operacoes:
+
+```text
+NPhysics.DataGenerator -> .nphysdata
+.nphysdata -> NPhysics.Trainer -> .nphysmodel
+.nphysmodel -> NPhysics.ModelSimulator -> simulacao com modelo
+```
+
+A geracao de dados inicia a simulacao fisica com a captura habilitada. O treinamento le o formato de dataset atraves da biblioteca e grava o modelo; o simulador do modelo carrega esse formato atraves da mesma biblioteca.
 
 As ferramentas de aprendizado ainda sao independentes do backend fisico ativo:
 
@@ -38,9 +39,11 @@ DatasetReader -> DatasetLoader -> GraphNetwork / GraphTrainer -> ModelSerializer
 
 ## Responsabilidades por componente
 
-### `Program`
+### Projetos executaveis e biblioteca
 
-`Program.Main` trata os comandos de validacao do dataset, treinamento experimental e probe GPU. Sem esses comandos, cria `PhysicsSimulation` e inicia a simulacao Teacher interativa. A leitura dos argumentos e simples e especifica para as opcoes documentadas; nao e um parser geral.
+`NPhysics` e uma biblioteca de classes com as implementacoes compartilhadas. `NPhysics.DataGenerator` habilita a captura e abre a simulacao para produzir datasets; `NPhysics.Trainer` treina um modelo a partir de um dataset; `NPhysics.ModelSimulator` abre a simulacao usando um arquivo `.nphysmodel`; `NPhysics.Simulation` preserva a CLI geral da simulacao e experimentos. A biblioteca e referenciada por todos os executaveis e testes, mantendo codigo compartilhado fora dos projetos de entrada.
+
+Os comandos de execucao estao documentados no README.
 
 ### `PhysicsSimulation`
 
@@ -55,7 +58,7 @@ Deriva de `GameWindow` do OpenTK e e responsavel pelo ciclo de vida interativo:
 - cria view e projection em `OnRenderFrame`;
 - libera os componentes em `OnUnload`.
 
-O acumulador usa `FixedStep`; ele separa o tempo da simulacao do tempo irregular entre quadros. O delta de quadro e limitado a 0,05 s, mas o `while` do acumulador nao limita a quantidade de passos executados para recuperar atraso.
+`SimulationClock` separa tempo real, tempo fisico e atraso acumulado. O delta de quadro e limitado a 0,05 s e a recuperacao e limitada a oito passos fixos por quadro; excesso de atraso e contado como tempo descartado no trace.
 
 ### `SimulationSettings`
 
@@ -105,6 +108,12 @@ Cria o programa grafico, VAOs e VBOs dos billboards esfericos, blocos e terreno.
 5. consome o comando de desenho indireto para as esferas visiveis e usa seus quaternions para orientar as marcas visuais.
 
 O renderizador nao copia as posicoes dos discos para CPU.
+
+`SceneRenderer` possui um modo de visualizacao por escalar. Os modos implementados
+alternam a cor dos billboards entre energia potencial relativa, magnitude da
+velocidade linear, magnitude da velocidade angular, massa e restituicao. As cores
+somente sao calculadas no vertex shader; nenhum modo grava ou transforma o estado
+fisico.
 
 ### `GpuDiagnostics` e `SimulationTrace`
 

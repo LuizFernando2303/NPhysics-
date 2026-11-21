@@ -213,7 +213,7 @@ Os contadores sao acumulados na GPU e lidos por readback assíncrono em um anel 
 | `averageFrameMilliseconds` | Media de `FrameEventArgs.Time` entre quadros renderizados |
 | `averageRenderSubmissionMilliseconds` | Tempo CPU medio em render e `SwapBuffers` por quadro; pode incluir espera de VSync |
 
-Os tempos GPU sao os ultimos resultados disponiveis, nao uma media exata do intervalo JSONL. As contagens de contato sao eventos por esfera, nao pares unicos. Contadores de 32 bits podem dar wrap em cargas extremas. O rastreador nao salva posicao/velocidade de cada corpo: fazer isso para um milhao de esferas por amostra criaria transferencias e arquivos grandes, alem de alterar o desempenho.
+Os tempos GPU sao os ultimos resultados disponiveis, nao uma media exata do intervalo JSONL. As contagens de contato sao eventos por esfera, nao pares unicos. Contadores de 32 bits podem dar wrap em cargas extremas. O rastreador nao salva posicao/velocidade de cada corpo: fazer isso para 100.000 esferas por amostra criaria transferencias e arquivos grandes, alem de alterar o desempenho.
 
 Instrumentar cada candidato e contato usa atomicos e acrescenta custo. Para comparar, registre uma execucao com coleta ligada, pressione `F3` para desligar e compare janela, cena e dispositivo equivalentes. O rastreamento desligado suprime atomicos e queries, mas a simulacao continua. Evite interpretar uma diferenca pequena como ganho real sem repetir execucoes.
 

@@ -10,6 +10,7 @@ internal enum SimulationControlAction
     ToggleDiagnostics,
     CaptureFrame,
     ToggleDatasetCapture,
+    CycleVisualization,
     OpenReport,
 }
 
@@ -235,6 +236,7 @@ internal sealed class SimulationHud : IDisposable
                     : "MODEL",
                 SimulationControlAction.ToggleDatasetCapture,
                 datasetCaptureAvailable),
+            new HudButton("VIEW", SimulationControlAction.CycleVisualization, true),
             new HudButton("REPORT", SimulationControlAction.OpenReport, true),
         };
         var result = new HudButton[buttons.Length];

@@ -61,7 +61,7 @@ O comando `DrawArraysIndirect` tem 16 bytes: contagem de vertices, contagem de i
 
 ## Tamanhos
 
-Para `N = 1.000.000`, um `vec4` por corpo ocupa `N * 16` bytes = 16.000.000 bytes (aproximadamente 15,26 MiB).
+Para `N = 100.000`, um `vec4` por corpo ocupa `N * 16` bytes = 1.600.000 bytes (aproximadamente 1,53 MiB).
 
 | Buffer | Formula | Tamanho nominal |
 |---|---:|---:|
@@ -205,7 +205,7 @@ Se um compute shader for adicionado, identificar qual comando seguinte consome s
 Em cada passo de simulacao, o projeto:
 
 - escreve todos os 4.194.304 buckets;
-- insere N discos (1.000.000 por padrao);
+- insere N discos (100.000 por padrao);
 - executa N invocacoes de simulacao;
 - percorre ate 27 listas hash por disco;
 - consulta obstaculos ativos por disco.
@@ -225,4 +225,12 @@ Quando houver um erro:
 7. Confirmar limites de workgroup suportados pelo dispositivo.
 8. Reproduzir com uma quantidade pequena de discos em branch/teste temporario antes de escalar.
 
-Use `--count 256`, `--count 1024` ou outra quantidade positiva para reproduzir com um conjunto menor. Um milhao continua sendo o padrao.
+Use `--count 256`, `--count 1024` ou outra quantidade positiva para reproduzir com um conjunto menor. Cem mil continua sendo o padrao.
+
+## Diagnostico de capacidade
+
+`GpuDeviceCapabilities.Capture` consulta o tamanho maximo de SSBO e o limite de
+invocacoes por workgroup usando APIs suportadas pelo OpenGL 4.3. O caminho de
+inicializacao nao consulta separadamente o vetor tridimensional de tamanho de
+workgroup; o limite de invocacoes valida o workgroup local de 128 threads usado
+pelos shaders. Os limites encontrados sao registrados no console no startup.

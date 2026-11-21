@@ -385,6 +385,24 @@ internal sealed class NeuralPhysicsBackend : IDisposable
             var position = freePositions[node] + positionCorrection;
             var velocity = freeVelocities[node] + velocityCorrection;
             var angular = previousAngular + angularCorrection;
+            if (!float.IsFinite(position.X)
+                || !float.IsFinite(position.Y)
+                || !float.IsFinite(position.Z))
+            {
+                position = freePositions[node];
+            }
+            if (!float.IsFinite(velocity.X)
+                || !float.IsFinite(velocity.Y)
+                || !float.IsFinite(velocity.Z))
+            {
+                velocity = freeVelocities[node];
+            }
+            if (!float.IsFinite(angular.X)
+                || !float.IsFinite(angular.Y)
+                || !float.IsFinite(angular.Z))
+            {
+                angular = previousAngular;
+            }
             positionOutput[stateOffset] = position.X;
             positionOutput[stateOffset + 1] = position.Y;
             positionOutput[stateOffset + 2] = position.Z;
@@ -409,13 +427,10 @@ internal sealed class NeuralPhysicsBackend : IDisposable
             spinInput[offset + 1],
             spinInput[offset + 2],
             spinInput[offset + 3]);
-        var derivative = new Vector4(
-            Vector3.Cross(angular, new Vector3(orientation.X, orientation.Y, orientation.Z))
-                + orientation.W * angular,
-            -Vector3.Dot(angular, new Vector3(orientation.X, orientation.Y, orientation.Z)));
-        orientation += 0.5f * deltaTime * derivative;
-        var length = orientation.Length;
-        orientation = length > 0.000001f ? orientation / length : new Vector4(0f, 0f, 0f, 1f);
+        orientation = RigidBodyNumerics.IntegrateOrientation(
+            orientation,
+            angular,
+            deltaTime);
         spinOutput[offset] = orientation.X;
         spinOutput[offset + 1] = orientation.Y;
         spinOutput[offset + 2] = orientation.Z;

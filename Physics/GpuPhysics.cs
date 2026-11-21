@@ -50,6 +50,7 @@ internal sealed class GpuPhysics : IDisposable
     public int PositionBuffer => _positionBuffers[_currentState];
     public int MaterialBuffer => _materialBuffer;
     public int SpinBuffer => _spinBuffers[_currentState];
+    public int VelocityBuffer => _velocityBuffers[_currentState];
     public int VisibleDrawBuffer => _visibleDrawBuffer;
     public bool IsDatasetCaptureEnabled => _datasetGenerator?.IsEnabled == true;
     public bool IsModelBackend => _neuralBackend is not null;
@@ -79,6 +80,12 @@ internal sealed class GpuPhysics : IDisposable
     public void Initialize(ProceduralTrack track, Random random, string? neuralModelPath = null)
     {
         _trackForNeural = track;
+        var gpuCapabilities = GpuDeviceCapabilities.Capture();
+        gpuCapabilities.ValidateSimulation(SimulationSettings.DiskCount);
+        Console.WriteLine(
+            $"GPU capabilities: SSBO={gpuCapabilities.MaximumShaderStorageBlockSize:N0} bytes, "
+            + $"workgroup invocations={gpuCapabilities.MaximumComputeWorkGroupInvocations:N0}, "
+            + $"workgroup X={gpuCapabilities.MaximumComputeWorkGroupSizeX:N0}");
         if (neuralModelPath is not null)
         {
             _neuralBackend = new NeuralPhysicsBackend(neuralModelPath);

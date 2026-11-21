@@ -25,7 +25,7 @@ The uploader checks `GL_MAX_SHADER_STORAGE_BLOCK_SIZE` before allocating one SSB
 
 ## Validation command
 
-`dotnet run -- --gpu-model-check <model.nphysmodel>` creates a temporary OpenGL 4.3 context, loads and uploads the model, runs a three-node graph (including a zero-degree node) through all inference stages, and compares outputs against `GraphNetwork.Forward`. The probe checks model decoding, packed offsets, SSBO upload, CSR edge offsets, activation, aggregation, barriers and CPU/GPU numerical agreement. The runtime-facing `DispatchFromBuffers` leaves the output on GPU; the probe's convenience `Forward` path intentionally performs a synchronous readback for comparison. No physics backend is changed yet.
+`dotnet run --project SimulationApp -- --gpu-model-check <model.nphysmodel>` creates a temporary OpenGL 4.3 context, loads and uploads the model, runs a three-node graph (including a zero-degree node) through all inference stages, and compares outputs against `GraphNetwork.Forward`. The probe checks model decoding, packed offsets, SSBO upload, CSR edge offsets, activation, aggregation, barriers and CPU/GPU numerical agreement. The runtime-facing `DispatchFromBuffers` leaves the output on GPU; the probe's convenience `Forward` path intentionally performs a synchronous readback for comparison. No physics backend is changed yet.
 
 ## Current limitations
 

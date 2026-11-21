@@ -3,6 +3,15 @@ using OpenTK.Mathematics;
 
 namespace NPhysics;
 
+internal enum ScientificVisualizationMode
+{
+    PotentialEnergy,
+    LinearVelocity,
+    AngularVelocity,
+    Mass,
+    Restitution,
+}
+
 internal sealed class SceneRenderer : IDisposable
 {
     private const int TerrainLength = 180;
@@ -40,8 +49,12 @@ internal sealed class SceneRenderer : IDisposable
     private int _gravityLocation;
     private int _potentialReferenceHeightLocation;
     private int _potentialEnergyRangeLocation;
+    private int _visualizationModeLocation;
+    private int _velocityRangeLocation;
+    private int _angularVelocityRangeLocation;
     private float _potentialReferenceHeight;
     private float _potentialEnergyRange;
+    private ScientificVisualizationMode _visualizationMode;
 
     public SceneRenderer(ProceduralTrack track, GpuPhysics physics)
     {
@@ -74,6 +87,9 @@ internal sealed class SceneRenderer : IDisposable
         _gravityLocation = GL.GetUniformLocation(_program, "uGravity");
         _potentialReferenceHeightLocation = GL.GetUniformLocation(_program, "uPotentialReferenceHeight");
         _potentialEnergyRangeLocation = GL.GetUniformLocation(_program, "uPotentialEnergyRange");
+        _visualizationModeLocation = GL.GetUniformLocation(_program, "uVisualizationMode");
+        _velocityRangeLocation = GL.GetUniformLocation(_program, "uVelocityRange");
+        _angularVelocityRangeLocation = GL.GetUniformLocation(_program, "uAngularVelocityRange");
 
         var disksPerColumn = SimulationSettings.LaneCount * SimulationSettings.VerticalLayerCount;
         var lastSpawnColumn = (SimulationSettings.DiskCount - 1) / disksPerColumn;
@@ -87,6 +103,25 @@ internal sealed class SceneRenderer : IDisposable
                 * SimulationSettings.Gravity
                 * 1.15f,
             1f);
+    }
+
+    public ScientificVisualizationMode VisualizationMode => _visualizationMode;
+
+    public string VisualizationLabel => _visualizationMode switch
+    {
+            ScientificVisualizationMode.PotentialEnergy => "ENERGY",
+            ScientificVisualizationMode.LinearVelocity => "V-LINEAR",
+            ScientificVisualizationMode.AngularVelocity => "V-ANGULAR",
+            ScientificVisualizationMode.Mass => "MASS",
+            ScientificVisualizationMode.Restitution => "RESTITUTION",
+            _ => "UNKNOWN",
+    };
+
+    public void CycleVisualizationMode()
+    {
+            _visualizationMode = (ScientificVisualizationMode)(
+                ((int)_visualizationMode + 1)
+                % (Enum.GetValues<ScientificVisualizationMode>().Length));
     }
 
     public void Render(
@@ -104,6 +139,9 @@ internal sealed class SceneRenderer : IDisposable
         GL.Uniform1(_gravityLocation, SimulationSettings.Gravity);
         GL.Uniform1(_potentialReferenceHeightLocation, _potentialReferenceHeight);
         GL.Uniform1(_potentialEnergyRangeLocation, _potentialEnergyRange);
+        GL.Uniform1(_visualizationModeLocation, (int)_visualizationMode);
+        GL.Uniform1(_velocityRangeLocation, 20f);
+        GL.Uniform1(_angularVelocityRangeLocation, 50f);
 
         _physics.BeginDrawingTiming();
         DrawTerrain(cameraX);
@@ -194,6 +232,8 @@ internal sealed class SceneRenderer : IDisposable
         GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 0, _physics.PositionBuffer);
         GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 1, _physics.VisibleDrawBuffer);
         GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 7, _physics.MaterialBuffer);
+        GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 8, _physics.VelocityBuffer);
+        GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 9, _physics.SpinBuffer);
         GL.BindVertexArray(_ballVao);
         GL.BindBuffer(BufferTarget.DrawIndirectBuffer, _physics.VisibleDrawBuffer);
         GL.DrawArraysIndirect(PrimitiveType.Triangles, IntPtr.Zero);

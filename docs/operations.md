@@ -8,7 +8,7 @@ Os valores efetivos estao em `Physics/SimulationSettings.cs`.
 
 | Constante | Valor | Efeito |
 |---|---:|---|
-| `DiskCount` | 1.000.000 | Numero padrao de corpos; `--count` altera a quantidade para a execucao atual |
+| `DiskCount` | 100.000 | Numero padrao de corpos; `--count` altera a quantidade para a execucao atual |
 | `Seed` | 2026 | Seed inicial; pode ser substituida por `--seed` |
 | `WorkGroupSize` | 128 | Tamanho local usado nos shaders de grade e simulacao |
 | `GridBucketCount` | 4.194.304 | Numero de buckets hash; deve ser potencia de dois |
@@ -35,10 +35,10 @@ Os valores efetivos estao em `Physics/SimulationSettings.cs`.
 
 ### Alterar quantidade de discos
 
-`DiskCount` tem padrao de 1.000.000 e pode ser alterado no inicio do processo:
+`DiskCount` tem padrao de 100.000 e pode ser alterado no inicio do processo:
 
 ```powershell
-dotnet run -- --count 4096 --seed 2026
+dotnet run --project SimulationApp -- --count 4096 --seed 2026
 ```
 
 Altera buffers, dispatches, reset e culling. O custo cresce aproximadamente de forma linear no trabalho por disco, mas contatos podem ficar mais caros de forma nao linear quando a densidade local aumenta. O valor precisa ser positivo; reiniciar a aplicacao e necessario para alterar a quantidade.
@@ -46,13 +46,16 @@ Altera buffers, dispatches, reset e culling. O custo cresce aproximadamente de f
 Os controles interativos aparecem como botoes no canto superior esquerdo da janela: pausar/continuar, resetar, alternar diagnosticos, salvar PNG, alternar coleta de dataset e abrir o relatorio HTML mais recente. Os atalhos `Espaco`, `R` e `F3`-`F5` continuam como alternativas. O clique executa uma unica acao por pressao, inclusive se o botao do mouse ficar mantido. A captura de dataset e o trace JSONL de diagnosticos iniciam automaticamente; `DATA OFF`/`F5` e `TRACE ON/OFF`/`F3` permitem controla-los de forma independente. `--capture false` desativa a captura automatica para uma execucao. Cada SSBO da captura e limitado a 256 MiB e respeita o limite do driver. O readback mantem dois slots; para simulacoes grandes, a frequencia e reduzida automaticamente para limitar transferencias a aproximadamente 64 MiB/s. Em 100.000 esferas, um quadro ocupa 153.600.064 bytes e e amostrado a cada 275 passos. A captura encerra ao atingir um milhao de amostras (aproximadamente 1,5 GB para 100 mil esferas), gera um relatorio HTML automaticamente e deixa a simulacao/diagnosticos ativos. Ao fechar antes da meta, o relatorio e gerado para os dados validos coletados. Configuracoes acima da capacidade sao recusadas sem encerrar a simulacao e informadas no console. Os arquivos `.nphysdata` e relatorios ficam no diretorio LocalAppData padrao; o trace JSONL e gravado em `%LOCALAPPDATA%/NPhysics/traces`. Validacao e ferramentas de modelo sao comandos one-shot:
 
 ```powershell
-dotnet run -- --self-test
-dotnet run -- --validate-dataset "C:\path\to\capture.nphysdata"
-dotnet run -- --dataset-report "C:\path\to\capture.nphysdata"
-dotnet run -- --train "C:\path\to\capture.nphysdata"
-dotnet run -- --gpu-model-check "C:\path\to\capture.nphysmodel"
+dotnet run --project SimulationApp -- --self-test
+dotnet run --project SimulationApp -- --validate-dataset "C:\path\to\capture.nphysdata"
+dotnet run --project SimulationApp -- --dataset-report "C:\path\to\capture.nphysdata"
+dotnet run --project SimulationApp -- --train "C:\path\to\capture.nphysdata"
+dotnet run --project SimulationApp -- --gpu-model-check "C:\path\to\capture.nphysmodel"
+dotnet run --project SimulationApp -- --experiment "C:\path\to\experiment.json"
+dotnet run --project SimulationApp -- --count 4096 --seed 12345 --save-experiment "C:\path\to\experiment.json"
 dotnet run --project TrainerApp\NPhysics.Trainer.csproj -c Release -- --samples 25000 --batch-size 256
 dotnet run --project ModelSimulator\NPhysics.ModelSimulator.csproj -c Release -- "C:\path\to\model.nphysmodel" --count 2048
+dotnet run --project SimulationApp -- --model "C:\path\to\model.nphysmodel" --count 2048
 ```
 
 `--dataset-report` gera um painel HTML local com configuracao e qualidade do dataset. O treinador separado seleciona o dataset mais recente por padrao, permite escolher arquivo/saida/limites, ignora amostras com overflow e executa minibatches limitados em memoria. Seu painel `.training.html` mostra a loss de treino; ainda nao ha split de validacao nem garantia de generalizacao. `--gpu-model-check` compara o forward GNN com a referencia C# sem iniciar a simulacao.
@@ -79,12 +82,12 @@ Massa, raio e coeficientes sao sorteados em `GpuPhysics.Reset`. A massa afeta in
 
 ## Memoria e inicializacao
 
-Os principais SSBOs ocupam aproximadamente 169 MB decimais para um milhao de esferas, incluindo posicoes, velocidades lineares e os dois buffers ping-pong de orientacao e velocidade angular. Adicionalmente:
+Os principais SSBOs ocupam aproximadamente 17 MB decimais para 100.000 esferas, incluindo posicoes, velocidades lineares e os dois buffers ping-pong de orientacao e velocidade angular. Adicionalmente:
 
 - a inicializacao cria temporariamente quatro arrays C#: posicao, velocidade e material ocupam cerca de 16 MB cada; spin ocupa 32 MB, totalizando aproximadamente 80 MB;
 - o driver pode alocar espaco auxiliar;
 - malhas e framebuffer consomem memoria adicional;
-- a lista de indices visiveis tem capacidade para um milhao de indices mesmo que poucos objetos aparecam na camera.
+- a lista de indices visiveis tem capacidade para 100.000 indices mesmo que poucos objetos aparecam na camera.
 
 O reset recria arrays e reenvia os dados completos. Para testar com menos corpos, use `--count` no startup.
 
@@ -149,7 +152,7 @@ Verificar passo fixo, raio/espacamento, normal de contato, eixo de colisao, cell
 
 ### Lentidao extrema ou travamento
 
-O trabalho de um milhao de corpos por passo e exigente. Verificar uso de GPU, temperatura, versao do driver e os tempos por estagio e contadores agregados no [trace de diagnosticos](./diagnostics.md). O projeto nao registra amostras individuais por disco nem mantem contador de FPS separado.
+O trabalho de 100.000 corpos por passo pode ser exigente. Verificar uso de GPU, temperatura, versao do driver e os tempos por estagio e contadores agregados no [trace de diagnosticos](./diagnostics.md). O projeto nao registra amostras individuais por disco nem mantem contador de FPS separado.
 
 ## Checklist antes de alterar
 

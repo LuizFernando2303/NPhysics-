@@ -13,7 +13,7 @@ O trace foi desenhado para ajudar a responder:
 - Quanto do trabalho e submetido pela CPU e quanto tempo a GPU leva?
 - Quantas esferas estao visiveis por quadro e quantos passos fisicos sao executados?
 
-O objetivo nao e gravar o estado de cada esfera. Um milhao de posicoes, velocidades lineares e angulares a cada segundo provocaria transferencia, armazenamento e custo muito grandes. O sistema agrega contadores na GPU e registra metadados de cada janela.
+O objetivo nao e gravar o estado de cada esfera. 100.000 posicoes, velocidades lineares e angulares a cada segundo provocariam transferencia, armazenamento e custo muito grandes. O sistema agrega contadores na GPU e registra metadados de cada janela.
 
 ## Ativacao e arquivos
 

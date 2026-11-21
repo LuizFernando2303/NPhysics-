@@ -419,7 +419,7 @@ void resolveSphereCollision(
 vec4 integrateOrientation(vec4 orientation, vec3 angularVelocity, float deltaTime)
 {
     vec4 derivative = vec4(
-        cross(angularVelocity, orientation.xyz) + orientation.w * angularVelocity,
+        cross(orientation.xyz, angularVelocity) + orientation.w * angularVelocity,
         -dot(angularVelocity, orientation.xyz));
     orientation += 0.5 * deltaTime * derivative;
     float magnitude = length(orientation);

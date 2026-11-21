@@ -23,7 +23,8 @@ internal sealed class PhysicsSimulation : GameWindow
     private SimulationTrace? _trace;
     private SimulationFrameCapture? _frameCapture;
     private float _cameraX;
-    private float _accumulator;
+    private readonly SimulationClock _simulationClock =
+        new(SimulationSettings.FixedStep, maximumStepsPerFrame: 8);
     private double _simulationTimeSeconds;
     private double _frameCaptureTimeSeconds;
     private int _automaticFrameCaptureCount;
@@ -63,7 +64,16 @@ internal sealed class PhysicsSimulation : GameWindow
         GL.CullFace(TriangleFace.Back);
         GL.Viewport(0, 0, ClientSize.X, ClientSize.Y);
 
-        _physics.Initialize(_track, CreateRandomSource(), _neuralModelPath);
+        try
+        {
+            _physics.Initialize(_track, CreateRandomSource(), _neuralModelPath);
+        }
+        catch (NotSupportedException exception)
+        {
+            Console.Error.WriteLine($"Hardware ou driver incompativel: {exception.Message}");
+            Close();
+            return;
+        }
         _renderer = new SceneRenderer(_track, _physics);
         _renderer.Initialize();
         _hud = new SimulationHud();
@@ -114,21 +124,12 @@ internal sealed class PhysicsSimulation : GameWindow
             }
         }
 
-        if (_paused)
-        {
-            return;
-        }
-
         var frameTime = Math.Min((float)e.Time, 1f / 20f);
-        _accumulator += frameTime;
+        var stepCount = _simulationClock.ConsumeSteps(frameTime);
         var physicsStart = Stopwatch.GetTimestamp();
-        var stepCount = 0;
-        while (_accumulator >= FixedStep)
+        for (var step = 0; step < stepCount; step++)
         {
             _physics.Step(FixedStep);
-            _accumulator -= FixedStep;
-            _simulationTimeSeconds += FixedStep;
-            stepCount++;
             _totalPhysicsSteps++;
             if (_maximumPhysicsSteps is { } maximumSteps && _totalPhysicsSteps >= maximumSteps)
             {
@@ -136,6 +137,8 @@ internal sealed class PhysicsSimulation : GameWindow
                 break;
             }
         }
+        _simulationTimeSeconds = _simulationClock.SimulationTimeSeconds;
+        var frameTimeForCamera = _paused ? 0f : frameTime;
 
         if (stepCount > 0)
         {
@@ -143,7 +146,7 @@ internal sealed class PhysicsSimulation : GameWindow
             _physicsStepsInWindow += stepCount;
         }
 
-        _cameraX += frameTime * CameraSpeed;
+        _cameraX += frameTimeForCamera * CameraSpeed;
         _physics.UpdateObstacles(_track, _cameraX);
     }
 
@@ -189,6 +192,9 @@ internal sealed class PhysicsSimulation : GameWindow
             _cameraX,
             IsFocused,
             _paused,
+            _simulationClock.SimulationTimeSeconds,
+            _simulationClock.DroppedTimeSeconds,
+            _simulationClock.AccumulatorSeconds,
             _framesInWindow == 0 ? 0 : _frameMillisecondsInWindow / _framesInWindow,
             _framesInWindow == 0 ? 0 : _physicsSubmissionMillisecondsInWindow / _framesInWindow,
             _framesInWindow == 0 ? 0 : _renderSubmissionMillisecondsInWindow / _framesInWindow);
@@ -214,9 +220,10 @@ internal sealed class PhysicsSimulation : GameWindow
     private void ResetSimulation()
     {
         _cameraX = -8f;
-        _accumulator = 0f;
-        _simulationTimeSeconds = 0;
         _paused = false;
+        _simulationClock.SetPaused(false);
+        _simulationClock.Reset();
+        _simulationTimeSeconds = 0d;
         _physics.Reset(_track, CreateRandomSource());
         _physics.UpdateObstacles(_track, _cameraX, force: true);
     }
@@ -248,6 +255,10 @@ internal sealed class PhysicsSimulation : GameWindow
         {
             HandleControlAction(SimulationControlAction.ToggleDatasetCapture);
         }
+        if (KeyboardState.IsKeyPressed(Keys.V))
+        {
+            HandleControlAction(SimulationControlAction.CycleVisualization);
+        }
     }
 
     private void HandleControlAction(SimulationControlAction action)
@@ -256,6 +267,7 @@ internal sealed class PhysicsSimulation : GameWindow
         {
             case SimulationControlAction.TogglePause:
                 _paused = !_paused;
+                _simulationClock.SetPaused(_paused);
                 _trace?.WriteEvent(_paused ? "paused" : "resumed", _cameraX, _paused);
                 break;
             case SimulationControlAction.Reset:
@@ -298,6 +310,17 @@ internal sealed class PhysicsSimulation : GameWindow
                 Console.WriteLine(
                     $"Captura dataset {(enabled ? "ativada" : "pausada")}; "
                     + $"amostras={_physics.DatasetSampleCount:N0}");
+                break;
+            case SimulationControlAction.CycleVisualization:
+                _renderer?.CycleVisualizationMode();
+                if (_renderer is not null)
+                {
+                    Console.WriteLine($"Visualizacao: {_renderer.VisualizationLabel}");
+                    _trace?.WriteEvent(
+                        $"visualization-{_renderer.VisualizationLabel}",
+                        _cameraX,
+                        _paused);
+                }
                 break;
             case SimulationControlAction.OpenReport:
                 OpenLatestReport();
@@ -362,7 +385,9 @@ internal sealed class PhysicsSimulation : GameWindow
                 Title = $"NPhysics | GPU sim {sample.LastSimulationGpuMilliseconds:0.00} ms"
                     + $" | candidatos {sample.CandidateChecks:N0}"
                     + $" | contatos {sample.DiskContacts + sample.RampContacts + sample.ObstacleContacts:N0}"
-                    + $" | invalidos {sample.InvalidStates:N0}";
+                    + $" | invalidos {sample.InvalidStates:N0}"
+                    + $" | t={sample.FrameWindow.SimulationTimeSeconds:0.00}s"
+                    + $" | dropped={sample.FrameWindow.DroppedTimeSeconds:0.000}s";
             }
         }
     }

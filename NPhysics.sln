@@ -1,0 +1,48 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NPhysics", "NPhysics.csproj", "{D8A2A4C8-5A52-4DF7-842D-27DB5FBE7F5E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NPhysics.Trainer", "TrainerApp\NPhysics.Trainer.csproj", "{A57272C6-5B5F-4FA7-AE2A-3CEBEBB4A7F5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NPhysics.ModelSimulator", "ModelSimulator\NPhysics.ModelSimulator.csproj", "{C0C8E4E9-3828-4AA9-A5C8-34F0EB1E3E4A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NPhysics.DataGenerator", "DataGeneratorApp\NPhysics.DataGenerator.csproj", "{3A313758-35EE-4DC8-9D74-15CB644E990A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NPhysics.Simulation", "SimulationApp\NPhysics.Simulation.csproj", "{6894D0A8-3B7A-43CC-9F17-60738CD20F7E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NPhysics.Tests", "NPhysics.Tests\NPhysics.Tests.csproj", "{A5E00D9E-7E5C-4D9A-8F16-CC71A1883A96}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D8A2A4C8-5A52-4DF7-842D-27DB5FBE7F5E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D8A2A4C8-5A52-4DF7-842D-27DB5FBE7F5E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D8A2A4C8-5A52-4DF7-842D-27DB5FBE7F5E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D8A2A4C8-5A52-4DF7-842D-27DB5FBE7F5E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A57272C6-5B5F-4FA7-AE2A-3CEBEBB4A7F5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A57272C6-5B5F-4FA7-AE2A-3CEBEBB4A7F5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A57272C6-5B5F-4FA7-AE2A-3CEBEBB4A7F5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A57272C6-5B5F-4FA7-AE2A-3CEBEBB4A7F5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C0C8E4E9-3828-4AA9-A5C8-34F0EB1E3E4A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C0C8E4E9-3828-4AA9-A5C8-34F0EB1E3E4A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C0C8E4E9-3828-4AA9-A5C8-34F0EB1E3E4A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C0C8E4E9-3828-4AA9-A5C8-34F0EB1E3E4A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3A313758-35EE-4DC8-9D74-15CB644E990A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3A313758-35EE-4DC8-9D74-15CB644E990A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3A313758-35EE-4DC8-9D74-15CB644E990A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3A313758-35EE-4DC8-9D74-15CB644E990A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6894D0A8-3B7A-43CC-9F17-60738CD20F7E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6894D0A8-3B7A-43CC-9F17-60738CD20F7E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6894D0A8-3B7A-43CC-9F17-60738CD20F7E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6894D0A8-3B7A-43CC-9F17-60738CD20F7E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A5E00D9E-7E5C-4D9A-8F16-CC71A1883A96}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A5E00D9E-7E5C-4D9A-8F16-CC71A1883A96}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A5E00D9E-7E5C-4D9A-8F16-CC71A1883A96}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A5E00D9E-7E5C-4D9A-8F16-CC71A1883A96}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

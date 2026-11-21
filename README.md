@@ -1,6 +1,6 @@
 # NPhysics
 
-Simulacao interativa de ate um milhao de esferas rigidas por padrao em uma rampa procedural 3D, implementada em C# com OpenTK e OpenGL. Integracao, busca de vizinhos, contatos translacionais/rotacionais e selecao de objetos visiveis sao processados na GPU por compute shaders.
+Simulacao interativa de ate 100.000 esferas rigidas por padrao em uma rampa procedural 3D, implementada em C# com OpenTK e OpenGL. Integracao, busca de vizinhos, contatos translacionais/rotacionais e selecao de objetos visiveis sao processados na GPU por compute shaders.
 
 ## Sumario
 
@@ -20,12 +20,12 @@ Simulacao interativa de ate um milhao de esferas rigidas por padrao em uma rampa
 
 ## Escopo e parametros
 
-Os valores abaixo descrevem a configuracao implementada atualmente. A simulacao convencional usa **1.000.000 de esferas por padrao**; a quantidade pode ser reduzida no inicio por argumento de linha de comando. O total nao aumenta durante a simulacao e esferas que saem da rampa nao sao recriadas.
+Os valores abaixo descrevem a configuracao implementada atualmente. A simulacao convencional usa **100.000 esferas por padrao**; a quantidade pode ser reduzida no inicio por argumento de linha de comando. O total nao aumenta durante a simulacao e esferas que saem da rampa nao sao recriadas.
 
 | Parametro | Valor ou comportamento |
 |---|---|
 | Dimensao | Fisica de esferas rigidas 3D, com orientacao e velocidade angular |
-| Quantidade | 1.000.000 por padrao; configuravel com `--count` |
+| Quantidade | 100.000 por padrao; configuravel com `--count` |
 | Gravidade | 9,81 m/s², na direcao vertical negativa |
 | Inclinacao nominal da rampa | 45 graus; pequenas ondulacoes alteram localmente a superficie |
 | Passo fixo de fisica | 1/120 s |
@@ -53,15 +53,41 @@ Os valores de massa, raio, atrito e restituicao sao sorteados na inicializacao e
 Na raiz do projeto:
 
 ```powershell
-dotnet run
+dotnet build NPhysics.sln
 ```
 
-Para compilar sem iniciar a janela:
+Os projetos executaveis sao separados por etapa:
 
 ```powershell
-dotnet build
-dotnet run -- --self-test
+# Simulacao interativa geral / experimentos
+dotnet run --project SimulationApp
+
+# Gerar dataset com simulacao e captura habilitada
+dotnet run --project DataGeneratorApp -- --count 4096 --seed 2026 --steps 10000
+
+# Treinar um modelo a partir do dataset mais recente
+dotnet run --project TrainerApp
+
+# Simular usando um modelo treinado
+dotnet run --project ModelSimulator -- "C:\path\to\model.nphysmodel" --count 2048
 ```
+
+`NPhysics.csproj` e a biblioteca compartilhada usada por esses executaveis e pelos testes.
+
+Para executar todos os testes xUnit da solucao (incluindo novos projetos de teste):
+
+```powershell
+dotnet test NPhysics.sln --configuration Debug
+dotnet test NPhysics.sln --configuration Release
+dotnet run --project SimulationApp --configuration Debug -- --self-test
+dotnet run --project SimulationApp --configuration Release -- --self-test
+```
+
+O workflow do GitHub executa os testes xUnit da solucao e os smoke tests nos dois
+modos de compilacao. A suite automatizada cobre o relogio fixo, normalizacao de
+quaternion, validacao de capacidade GPU e rejeicao de datasets truncados/corrompidos.
+Testes que exigem um contexto OpenGL real continuam separados e nao sao incluidos
+nos testes CPU-only.
 
 O projeto usa OpenTK 4.9.4 e incorpora os arquivos GLSL no assembly durante a compilacao; os shaders nao precisam ser copiados para uma pasta externa na execucao.
 
@@ -74,6 +100,7 @@ O projeto usa OpenTK 4.9.4 e incorpora os arquivos GLSL no assembly durante a co
 | `TRACE ON` / `TRACE OFF` | `F3` | Pausar ou retomar a coleta de diagnosticos |
 | `SAVE PNG` | `F4` | Salvar uma captura PNG do quadro atual para avaliacao |
 | `DATA ON` / `DATA OFF` | `F5` | Ativar ou pausar a coleta do dataset |
+| `VIEW` | `V` | Alternar visualizacao cientifica |
 | `REPORT` | — | Abrir no navegador o relatorio HTML mais recente |
 
 A velocidade inicial da camera e 5,5 unidades por segundo. A quantidade e seed podem ser informadas no inicio; para alterar a quantidade, reinicie o processo.
@@ -87,8 +114,38 @@ O rastreamento inicia ativado e grava uma linha JSONL por amostra em `%LOCALAPPD
 A captura binaria e os diagnosticos JSONL iniciam automaticamente em cada sessao. `DATA OFF` ou `F5` pausa somente a captura do dataset; `TRACE ON/OFF` ou `F3` controla os diagnosticos. Tambem e possivel substituir o padrao pela linha de comando com `--capture false` ou `--capture true`:
 
 ```powershell
-dotnet run -- --count 4096 --seed 2026 --capture true
+dotnet run --project SimulationApp -- --count 4096 --seed 2026 --capture true
 ```
+
+### Experimentos reproduziveis
+
+Experimentos podem ser descritos por JSON versionado:
+
+```json
+{
+  "schemaVersion": 1,
+  "diskCount": 4096,
+  "seed": 2026,
+  "datasetCaptureEnabled": false,
+  "neuralModelPath": null,
+  "maximumPhysicsSteps": null
+}
+```
+
+Carregue e execute:
+
+```powershell
+dotnet run --project SimulationApp -- --experiment "C:\path\to\experiment.json"
+```
+
+Salve a configuracao efetiva ao executar:
+
+```powershell
+dotnet run --project SimulationApp -- --count 4096 --seed 12345 --save-experiment "C:\path\to\experiment.json"
+```
+
+Opcoes CLI posteriores substituem os valores carregados. `schemaVersion` incompativel
+ou quantidade/passos nao positivos sao rejeitados antes da janela abrir.
 
 Os arquivos `.nphysdata` sao gravados em `%LOCALAPPDATA%/NPhysics/datasets/`. A captura usa staging buffers em anel e fences OpenGL; o solver convencional nao usa o caminho neural. Os formatos incrementais podem ser validados pelo `DatasetReader`.
 
@@ -98,13 +155,13 @@ Por seguranca de memoria, cada SSBO de captura e limitado a 256 MiB e tambem res
 Valide um arquivo capturado sem abrir a janela:
 
 ```powershell
-dotnet run -- --validate-dataset "C:\Users\Anna Beatriz\AppData\Local\NPhysics\datasets\dataset.nphysdata"
+dotnet run --project SimulationApp -- --validate-dataset "C:\Users\Anna Beatriz\AppData\Local\NPhysics\datasets\dataset.nphysdata"
 ```
 
 Gere um painel HTML local com configuracoes da captura, contagens por categoria, overflow, vizinhos, estatisticas dos alvos fisicos e informacoes do modelo associado:
 
 ```powershell
-dotnet run -- --dataset-report "%LOCALAPPDATA%\NPhysics\datasets\dataset.nphysdata"
+dotnet run --project SimulationApp -- --dataset-report "%LOCALAPPDATA%\NPhysics\datasets\dataset.nphysdata"
 ```
 
 O arquivo `.report.html` e salvo ao lado do dataset. Ele pode ser aberto em qualquer navegador e nao depende de servidor nem envia dados para a internet.
@@ -131,7 +188,7 @@ O modelo `.nphysmodel` e o painel `.training.html` sao gravados no caminho de sa
 Verifique carregamento/upload dos pesos e a equivalencia do forward GNN entre C# e GLSL:
 
 ```powershell
-dotnet run -- --gpu-model-check "%LOCALAPPDATA%\NPhysics\datasets\dataset.nphysmodel"
+dotnet run --project SimulationApp -- --gpu-model-check "%LOCALAPPDATA%\NPhysics\datasets\dataset.nphysmodel"
 ```
 
 O formato v2 e a organizacao dos pesos no SSBO estao documentados em [docs/model-gpu-layout.md](docs/model-gpu-layout.md). O probe executa encoder, duas passagens message/update e decoder em um grafo pequeno e compara as correcoes com a referencia C#.
@@ -145,6 +202,12 @@ dotnet run --project ModelSimulator\NPhysics.ModelSimulator.csproj -c Release --
   "%LOCALAPPDATA%\NPhysics\datasets\capture.nphysmodel" --count 2048
 ```
 
+O executavel de simulacao geral tambem aceita o backend neural experimental diretamente:
+
+```powershell
+dotnet run --project SimulationApp -- --model "%LOCALAPPDATA%\NPhysics\datasets\capture.nphysmodel" --count 2048
+```
+
 Para validar carregamento e alguns passos sem deixar a janela aberta, acrescente `--steps 10`. O modo e experimental: correcoes de posicao/velocidade/rotacao sao limitadas por seguranca, a vizinhanca considera no maximo 16 corpos, contatos com obstaculos ainda nao sao simulados e nao ha garantia de estabilidade acumulada nem equivalencia ao Teacher. O trace identifica `solverBackend: neural-experimental` e registra o modelo. A captura Teacher fica desativada neste executavel para nao gerar rotulos incorretos.
 
 ## Arquitetura
@@ -153,9 +216,11 @@ O codigo e separado por responsabilidade:
 
 | Caminho | Responsabilidade |
 |---|---|
-| `Program.cs` | Ponto de entrada do Teacher e ferramentas de uma execucao |
+| `DataGeneratorApp/` | Aplicacao dedicada a captura de datasets |
+| `SimulationApp/` | Simulacao interativa geral e ferramentas de uma execucao |
 | `TrainerApp/` | Aplicacao de treino separada |
 | `ModelSimulator/` | Aplicacao que carrega e executa o backend neural experimental |
+| `NPhysics.csproj` | Biblioteca compartilhada por todos os executaveis |
 | `PhysicsSimulation.cs` | Ciclo da janela OpenTK, entrada, acumulador de passo fixo, camera e coordenacao dos componentes |
 | `Physics/SimulationSettings.cs` | Parametros centralizados usados pela simulacao e pela geracao de shaders |
 | `Physics/GpuPhysics.cs` | Buffers SSBO, inicializacao das esferas, grade espacial, dispatch e estado fisico na GPU |
@@ -179,13 +244,13 @@ O codigo e separado por responsabilidade:
 | `Shaders/CullDisks.comp.glsl` | Descarta discos fora do frustum e prepara o comando de desenho indireto |
 | `Shaders/Surface.vert.glsl` | Posiciona vertices da rampa, obstaculos e discos instanciados |
 | `Shaders/Surface.frag.glsl` | Iluminacao direcional simples e cor dos materiais |
-| `NPhysics.csproj` | Target .NET, dependencia OpenTK e incorporacao dos shaders como recursos |
+| `NPhysics.csproj` | Target .NET, dependencia OpenTK e incorporacao dos shaders como recursos da biblioteca |
 
-O namespace das classes e `NPhysics`. As aplicacoes graficas exigem contexto OpenGL 4.3 Core. O executavel principal continua usando o backend Teacher; `ModelSimulator` e uma aplicacao experimental separada para testar a inferencia no passo de movimento.
+O namespace das classes e `NPhysics`. As aplicacoes graficas exigem contexto OpenGL 4.3 Core. `SimulationApp` usa o backend Teacher por padrao; `ModelSimulator` e uma aplicacao experimental separada para testar a inferencia no passo de movimento.
 
 ## Fluxo de inicializacao e simulacao
 
-1. `Program.Main` cria `PhysicsSimulation` e inicia o loop do OpenTK.
+1. `SimulationApp` cria `PhysicsSimulation` e inicia o loop do OpenTK.
 2. `PhysicsSimulation.OnLoad` cria o estado da fisica, os programas GPU e as malhas de renderizacao.
 3. `GpuPhysics.Reset` gera posicao, velocidade linear, orientacao, velocidade angular e material para cada indice de `0` a `DiskCount - 1`; os arrays iniciais sao enviados aos SSBOs.
 4. A cada quadro, `PhysicsSimulation` acumula o tempo real. Para cada intervalo completo de 1/120 s, a fisica avanca um passo; o tempo do quadro e limitado a 1/20 s para evitar grandes saltos.
@@ -194,7 +259,7 @@ O namespace das classes e `NPhysics`. As aplicacoes graficas exigem contexto Ope
 7. Durante a renderizacao, um compute shader seleciona esferas visiveis. A cena desenha a rampa, obstaculos e as esferas visiveis; a GPU executa o desenho instanciado indireto.
 8. Ao fechar, `SceneRenderer` e `GpuPhysics` liberam programas, VAOs e buffers OpenGL.
 
-A fisica atualiza as 1.000.000 de esferas em cada passo, inclusive as que estao fora da camera. O culling reduz o trabalho de rasterizacao, nao o trabalho de simulacao.
+A fisica atualiza as 100.000 esferas em cada passo, inclusive as que estao fora da camera. O culling reduz o trabalho de rasterizacao, nao o trabalho de simulacao.
 
 ## Modelo fisico
 
@@ -242,7 +307,7 @@ Posicao, velocidade linear e material usam um `vec4` por esfera:
 
 Posicao, velocidade linear e estado angular sao alternados a cada passo: um conjunto e lido e o outro recebe o resultado. O estado angular usa dois `vec4` por esfera: quaternion `(x,y,z,w)` e velocidade angular `(wx,wy,wz,0)`. O desenho indireto tambem usa um SSBO com o comando OpenGL de cinco inteiros seguido pela lista de indices dos corpos visiveis.
 
-Estimativa nominal dos principais SSBOs para 1.000.000 de esferas:
+Estimativa nominal dos principais SSBOs para 100.000 esferas:
 
 - Posicoes ping-pong: 32 MB.
 - Velocidades ping-pong: 32 MB.
@@ -291,8 +356,11 @@ As esferas iniciais sao arranjadas em colunas ao longo de X, 110 faixas em Z e a
 
 - Projecao perspectiva OpenGL, com viewport redimensionavel.
 - Rampa como malha triangular com normais calculadas numericamente.
-- Particulas como sprites circulares billboard, desenhadas com instancing indireto, cores chapadas vivas, contorno escuro e pequeno brilho cartoon, sem sombreamento de luz.
-- A cor de cada particula representa `m * g * (y - yReferencia)`, normalizada pela energia potencial maxima estimada do percurso: vermelho/laranja para baixa energia e ciano/azul para alta.
+- Particulas como sprites circulares billboard, desenhadas por instancing indireto.
+- Os modos cientificos `V`/`VIEW` sao energia potencial, velocidade linear, velocidade angular, massa e restituicao.
+- A paleta cientifica usa azul para valores baixos, ciano/amarelo para intermediarios e vermelho para valores altos.
+- Os modos sao uma leitura do estado fisico atual e nao alteram posicoes, velocidades ou colisoes.
+- Velocidade linear usa limite de escala de 20 m/s; velocidade angular usa 50 rad/s. Massa e restituicao usam os intervalos implementados pela configuracao.
 - A camera segue a rampa por uma vista proxima, elevada e obliqua, enquadrada em um trecho curto para destacar a largura, relevo, obstaculos e esferas em movimento.
 - Obstaculos circulares usam malha cilindrica; blocos usam malha cubica.
 - O relevo usa bandas e linhas de contorno estilizadas; obstaculos usam paletas contrastantes e padroes de faixa, sem escurecimento por normais ou luz direcional.
@@ -301,7 +369,7 @@ As esferas iniciais sao arranjadas em colunas ao longo de X, 110 faixas em Z e a
 
 ## Desempenho e limitacoes
 
-A configuracao padrao de um milhao de esferas e muito alta para uma simulacao interativa; a quantidade pode ser reduzida com `--count` para desenvolvimento. A GPU processa N invocacoes por passo de fisica e por quadro de culling. O processamento foi movido para compute shaders, e a renderizacao evita desenhar esferas fora da camera, mas o desempenho final depende da GPU, do driver e da densidade local de corpos.
+A configuracao padrao de 100.000 esferas e adequada a cargas intermediarias, mas ainda depende da GPU. A quantidade pode ser reduzida com `--count` para desenvolvimento. A GPU processa N invocacoes por passo de fisica e por quadro de culling. O processamento foi movido para compute shaders, e a renderizacao evita desenhar esferas fora da camera, mas o desempenho final depende da GPU, do driver e da densidade local de corpos.
 
 O modelo e uma simulacao customizada, nao um motor rigido completo:
 
@@ -335,3 +403,4 @@ Os documentos complementares detalham o projeto sem transformar este arquivo em 
 - [Layout do modelo neural na GPU](docs/model-gpu-layout.md): formato `.nphysmodel` v2, packing dos pesos e limites do probe atual.
 - [Parametros, desempenho e diagnostico](docs/operations.md): faixas configuraveis, estimativas, sintoma/causa e roteiro de verificacao.
 - [Rastreamento e diagnosticos](docs/diagnostics.md): campos do trace, custos, controles e como usar os dados para orientar otimizacoes.
+- [Benchmarks e reprodutibilidade](docs/benchmarks.md): configuracao minima, execucao, metricas exigidas e limites das comparacoes.

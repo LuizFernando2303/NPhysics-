@@ -7,6 +7,9 @@ internal readonly record struct TelemetryFrameWindow(
     float CameraX,
     bool Focused,
     bool Paused,
+    double SimulationTimeSeconds,
+    double DroppedTimeSeconds,
+    float AccumulatorSeconds,
     double AverageFrameMilliseconds,
     double AveragePhysicsSubmissionMilliseconds,
     double AverageRenderSubmissionMilliseconds);
