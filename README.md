@@ -69,10 +69,10 @@ dotnet run --project DataGeneratorApp -- --count 4096 --seed 2026 --steps 10000
 dotnet run --project DataGeneratorApp -- --count 4096 --view scene
 
 # Treinar um modelo a partir do dataset mais recente
-dotnet run --project TrainerApp
+dotnet run --project TrainerApp -- --model "$env:LOCALAPPDATA\NPhysics\datasets\model.nphysmodel"
 
 # Simular usando um modelo treinado
-dotnet run --project ModelSimulator -- "C:\path\to\model.nphysmodel" --count 2048
+dotnet run --project ModelSimulator -- "$env:LOCALAPPDATA\NPhysics\datasets\model.nphysmodel" --count 2048
 ```
 
 `NPhysics.csproj` e a biblioteca compartilhada usada por esses executaveis e pelos testes.
@@ -181,7 +181,7 @@ dotnet run --project SimulationApp -- --validate-dataset "C:\Users\Anna Beatriz\
 Gere um painel HTML local com configuracoes da captura, contagens por categoria, overflow, vizinhos, estatisticas dos alvos fisicos e informacoes do modelo associado:
 
 ```powershell
-dotnet run --project SimulationApp -- --dataset-report "%LOCALAPPDATA%\NPhysics\datasets\dataset.nphysdata"
+dotnet run --project SimulationApp -- --dataset-report "$env:LOCALAPPDATA\NPhysics\datasets\dataset.nphysdata"
 ```
 
 O arquivo `.report.html` e salvo ao lado do dataset. Ele pode ser aberto em qualquer navegador e nao depende de servidor nem envia dados para a internet.
@@ -198,8 +198,8 @@ Tambem aceita caminhos e limites explicitos:
 
 ```powershell
 dotnet run --project TrainerApp\NPhysics.Trainer.csproj -c Release -- `
-  --dataset "%LOCALAPPDATA%\NPhysics\datasets\capture.nphysdata" `
-  --model "%LOCALAPPDATA%\NPhysics\datasets\model.nphysmodel" `
+  --dataset "$env:LOCALAPPDATA\NPhysics\datasets\capture.nphysdata" `
+  --model "$env:LOCALAPPDATA\NPhysics\datasets\model.nphysmodel" `
   --samples 25000 --batch-size 256
 ```
 
@@ -208,7 +208,7 @@ O modelo `.nphysmodel` e o painel `.training.html` sao gravados no caminho de sa
 Verifique carregamento/upload dos pesos e a equivalencia do forward GNN entre C# e GLSL:
 
 ```powershell
-dotnet run --project SimulationApp -- --gpu-model-check "%LOCALAPPDATA%\NPhysics\datasets\dataset.nphysmodel"
+dotnet run --project SimulationApp -- --gpu-model-check "$env:LOCALAPPDATA\NPhysics\datasets\model.nphysmodel"
 ```
 
 O formato v2 e a organizacao dos pesos no SSBO estao documentados em [docs/model-gpu-layout.md](docs/model-gpu-layout.md). O probe executa encoder, duas passagens message/update e decoder em um grafo pequeno e compara as correcoes com a referencia C#.
@@ -219,13 +219,13 @@ O executavel separado abaixo carrega o modelo e usa suas correcoes como backend 
 
 ```powershell
 dotnet run --project ModelSimulator\NPhysics.ModelSimulator.csproj -c Release -- `
-  "%LOCALAPPDATA%\NPhysics\datasets\capture.nphysmodel" --count 2048
+  "$env:LOCALAPPDATA\NPhysics\datasets\model.nphysmodel" --count 2048
 ```
 
 O executavel de simulacao geral tambem aceita o backend neural experimental diretamente:
 
 ```powershell
-dotnet run --project SimulationApp -- --model "%LOCALAPPDATA%\NPhysics\datasets\capture.nphysmodel" --count 2048
+dotnet run --project SimulationApp -- --model "$env:LOCALAPPDATA\NPhysics\datasets\model.nphysmodel" --count 2048
 ```
 
 Para validar carregamento e alguns passos sem deixar a janela aberta, acrescente `--steps 10`. O modo de apresentacao opcional e `--view scene`; o painel de dados e padrao. O modo neural e experimental: correcoes de posicao/velocidade/rotacao sao limitadas por seguranca, a vizinhanca considera no maximo 16 corpos, contatos com obstaculos ainda nao sao simulados e nao ha garantia de estabilidade acumulada nem equivalencia ao Teacher. O trace identifica `solverBackend: neural-experimental` e registra o modelo. A captura Teacher fica desativada neste executavel para nao gerar rotulos incorretos.
